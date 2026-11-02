@@ -1505,6 +1505,7 @@ class HighscoreParser {
     }
 }
 
+
 // ==========================================
 // SOURCE: src/userscript/interceptor.js
 // ==========================================
@@ -2344,7 +2345,7 @@ class InGameHUD {
 
         toast.querySelector('.gt-toast-close')?.addEventListener('click', () => {
             if (typeof toast.remove === 'function') toast.remove();
-            else if (toast.parentNode) toast.parentNode.removeChild(toast);
+            else if (toast.parentNode && typeof toast.parentNode.removeChild === 'function') toast.parentNode.removeChild(toast);
         });
 
         container.appendChild(toast);
@@ -2355,7 +2356,7 @@ class InGameHUD {
             toast.style.transform = 'translateX(20px)';
             setTimeout(() => {
                 if (typeof toast.remove === 'function') toast.remove();
-                else if (toast.parentNode) toast.parentNode.removeChild(toast);
+                else if (toast.parentNode && typeof toast.parentNode.removeChild === 'function') toast.parentNode.removeChild(toast);
             }, 300);
         }, 4500);
     }
