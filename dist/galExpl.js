@@ -890,6 +890,26 @@
 
         saveToIndexedDBDirectly(planets);
 
+        // 3. Enviar a API Bridge local (http://localhost:8080/api/sync.php)
+        try {
+            const payload = JSON.stringify({ type: 'galaxy', galaxy, system, planets });
+            if (typeof GM_xmlhttpRequest === 'function') {
+                GM_xmlhttpRequest({
+                    method: 'POST',
+                    url: 'http://localhost:8080/api/sync.php',
+                    headers: { 'Content-Type': 'application/json' },
+                    data: payload
+                });
+            } else if (typeof fetch === 'function') {
+                fetch('http://localhost:8080/api/sync.php', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: payload,
+                    mode: 'cors'
+                }).catch(() => {});
+            }
+        } catch (_) {}
+
         const badge = document.getElementById('sc-gt-status-badge');
         if (badge) {
             badge.textContent = `● Sincronizado [${galaxy}:${system}]`;

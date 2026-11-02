@@ -1140,35 +1140,41 @@ class ChatSyncBus {
 // SOURCE: src/userscript/parser-galaxy.js
 // ==========================================
 /**
- * OGame Modern Galaxy Parser
+ * OGame Modern Galaxy Parser (Robust Real-World Implementation)
  * Extracts planets, moons, debris, players, and activity indicators
- * from modern OGame galaxy responses (JSON or DOM snippets).
+ * from modern OGame galaxy responses (JSON, HTML snippets, or Live DOM).
  */
 
 class GalaxyParser {
     /**
-     * Parses an OGame galaxy response (supports modern JSON payload and DOM fallback)
+     * Parses an OGame galaxy response (supports JSON, HTML snippet, or Live DOM)
      * @param {Object|string} responseData
      * @returns {Object|null} { galaxy, system, planets: Array<Object> }
      */
     static parse(responseData) {
         if (!responseData) return null;
 
-        // Modern OGame galaxy responses often arrive as JSON
+        // 1. If it's already an object with galaxy & system
         if (typeof responseData === 'object' && responseData.galaxy && responseData.system) {
             return this.parseJSONGalaxy(responseData);
         }
 
+        // 2. If it's a string, try JSON first, then HTML
         if (typeof responseData === 'string') {
-            try {
-                const parsed = JSON.parse(responseData);
-                if (parsed.galaxy && parsed.system) {
-                    return this.parseJSONGalaxy(parsed);
-                }
-            } catch (_) {
-                // Fallback: parse as HTML DOM
-                return this.parseHTMLGalaxy(responseData);
+            const trimmed = responseData.trim();
+            if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+                try {
+                    const parsed = JSON.parse(trimmed);
+                    if (parsed.galaxy && parsed.system) {
+                        return this.parseJSONGalaxy(parsed);
+                    }
+                    if (parsed.galaxyContent && typeof parsed.galaxyContent === 'string') {
+                        return this.parseHTMLGalaxy(parsed.galaxyContent, parseInt(parsed.galaxy, 10), parseInt(parsed.system, 10));
+                    }
+                } catch (_) {}
             }
+
+            return this.parseHTMLGalaxy(responseData);
         }
 
         return null;
@@ -1182,7 +1188,6 @@ class GalaxyParser {
         const system = parseInt(data.system, 10);
         const planets = [];
 
-        // OGame provides system rows either as array or object
         const rows = data.galaxyContent || data.rows || [];
         const entries = Array.isArray(rows) ? rows : Object.values(rows);
 
@@ -1196,40 +1201,43 @@ class GalaxyParser {
                 system,
                 position,
                 isMoon: false,
+                planetName: row.planetName || row.name || `Planeta ${position}`,
                 name: row.planetName || row.name || `Planeta ${position}`,
                 playerId: row.playerId ? parseInt(row.playerId, 10) : 0,
                 playerName: row.playerName || '',
                 allianceId: row.allianceId ? parseInt(row.allianceId, 10) : 0,
                 allianceTag: row.allianceTag || '',
-                status: row.playerStatus || row.status || '', // 'active', 'i', 'I', 'v', 'b'
-                activity: row.activity || null, // null, '*', '15min'
-                debris: [
-                    row.debrisMetal ? parseInt(row.debrisMetal, 10) : 0,
-                    row.debrisCrystal ? parseInt(row.debrisCrystal, 10) : 0
-                ],
+                playerStatus: row.playerStatus || row.status || '',
+                status: row.playerStatus || row.status || '',
+                hasMoon: !!(row.hasMoon || row.moon),
+                moonSize: row.moonSize ? parseInt(row.moonSize, 10) : 0,
+                debris: row.debris ? row.debris : ((row.debrisMetal || row.debrisCrystal) ? {
+                    metal: parseInt(row.debrisMetal || 0, 10),
+                    crystal: parseInt(row.debrisCrystal || 0, 10)
+                } : null),
                 updatedAt: Date.now()
             };
 
             planets.push(planetObj);
 
-            // Check if Moon exists
             if (row.hasMoon || row.moon) {
-                const moonObj = {
+                planets.push({
                     galaxy,
                     system,
                     position,
                     isMoon: true,
-                    name: row.moonName || 'Luna',
+                    planetName: row.moonName || `Luna ${position}`,
+                    name: row.moonName || `Luna ${position}`,
                     moonSize: row.moonSize ? parseInt(row.moonSize, 10) : 0,
                     playerId: planetObj.playerId,
                     playerName: planetObj.playerName,
                     allianceId: planetObj.allianceId,
                     allianceTag: planetObj.allianceTag,
+                    playerStatus: planetObj.status,
                     status: planetObj.status,
-                    activity: row.moonActivity || null,
+                    debris: null,
                     updatedAt: Date.now()
-                };
-                planets.push(moonObj);
+                });
             }
         }
 
@@ -1237,41 +1245,285 @@ class GalaxyParser {
     }
 
     /**
-     * Parses HTML DOM string fallback if OGame returns HTML table
+     * Parses HTML DOM string (returned via AJAX or page source)
      */
-    static parseHTMLGalaxy(htmlString) {
-        // Fallback regex extraction for galaxy/system header
-        const gMatch = htmlString.match(/name=["']galaxy["']\s+value=["'](\d+)["']/i) ||
-                       htmlString.match(/data-galaxy=["'](\d+)["']/i);
-        const sMatch = htmlString.match(/name=["']system["']\s+value=["'](\d+)["']/i) ||
-                       htmlString.match(/data-system=["'](\d+)["']/i);
+    static parseHTMLGalaxy(htmlString, fallbackGalaxy = null, fallbackSystem = null) {
+        if (!htmlString || typeof htmlString !== 'string') return null;
 
-        if (!gMatch || !sMatch) return null;
+        let doc = null;
+        if (typeof DOMParser !== 'undefined') {
+            try {
+                const parser = new DOMParser();
+                doc = parser.parseFromString(htmlString, 'text/html');
+            } catch (_) {}
+        }
 
-        const galaxy = parseInt(gMatch[1], 10);
-        const system = parseInt(sMatch[1], 10);
+        let galaxy = fallbackGalaxy;
+        let system = fallbackSystem;
+
+        // Try extracting galaxy and system coordinates
+        if (!galaxy || !system) {
+            const gInput = doc ? doc.querySelector('#galaxy_input, input[name="galaxy"]') : null;
+            const sInput = doc ? doc.querySelector('#system_input, input[name="system"]') : null;
+            if (gInput && gInput.value) galaxy = parseInt(gInput.value, 10);
+            if (sInput && sInput.value) system = parseInt(sInput.value, 10);
+        }
+
+        if (!galaxy || !system) {
+            const gMatch = htmlString.match(/(?:id|name)=["']galaxy(?:_input)?["'][^>]*value=["'](\d+)["']/i) ||
+                           htmlString.match(/data-galaxy=["'](\d+)["']/i) ||
+                           htmlString.match(/galaxy\s*:\s*(\d+)/i);
+            const sMatch = htmlString.match(/(?:id|name)=["']system(?:_input)?["'][^>]*value=["'](\d+)["']/i) ||
+                           htmlString.match(/data-system=["'](\d+)["']/i) ||
+                           htmlString.match(/system\s*:\s*(\d+)/i);
+            if (gMatch) galaxy = parseInt(gMatch[1], 10);
+            if (sMatch) system = parseInt(sMatch[1], 10);
+        }
+
+        // Global fallback to window/document if running in browser
+        if ((!galaxy || !system) && typeof document !== 'undefined') {
+            const liveG = document.querySelector('#galaxy_input, input[name="galaxy"]');
+            const liveS = document.querySelector('#system_input, input[name="system"]');
+            if (liveG && liveG.value) galaxy = parseInt(liveG.value, 10);
+            if (liveS && liveS.value) system = parseInt(liveS.value, 10);
+        }
+
+        if (!galaxy || !system) return null;
+
         const planets = [];
 
-        // Simple row matcher across slots 1 to 15
-        const rowRegex = /data-planet-id=["'](\d+)["'][\s\S]*?position["']?>(\d+)<[\s\S]*?(?:player["']>([^<]+)<)?/gi;
-        let match;
-        while ((match = rowRegex.exec(htmlString)) !== null) {
-            planets.push({
-                galaxy,
-                system,
-                position: parseInt(match[2], 10),
-                isMoon: false,
-                name: 'Planeta ' + match[2],
-                playerId: parseInt(match[1], 10),
-                playerName: match[3] ? match[3].trim() : '',
-                updatedAt: Date.now()
-            });
+        // If doc parsed successfully, use robust query selectors
+        if (doc) {
+            for (let pos = 1; pos <= 15; pos++) {
+                const row = doc.getElementById(`galaxyRow${pos}`) || doc.querySelector(`[id="galaxyRow${pos}"]`);
+                if (!row) continue;
+                if (row.classList.contains('empty_filter')) continue;
+
+                const extracted = this.extractRowFromElement(row, galaxy, system, pos);
+                if (extracted) {
+                    planets.push(extracted.planet);
+                    if (extracted.moon) planets.push(extracted.moon);
+                }
+            }
+        }
+
+        // Fallback regex matcher if DOMParser was unavailable
+        if (planets.length === 0) {
+            const rowMatches = htmlString.matchAll(/id=["']galaxyRow(\d+)["'][\s\S]*?(?:id=["']galaxyRow|\<\/table|\<\/div\s*\>\s*\<\/div\s*\>|$)/gi);
+            for (const rm of rowMatches) {
+                const pos = parseInt(rm[1], 10);
+                if (pos < 1 || pos > 15) continue;
+                const snippet = rm[0];
+                if (snippet.includes('empty_filter')) continue;
+
+                // Player name
+                const pMatch = snippet.match(/class=["'][^"']*playerName[^"']*["'][^>]*>([\s\S]*?)<\/(?:span|a|div)>/i);
+                const playerName = pMatch ? pMatch[1].replace(/<[^>]+>/g, '').trim() : '';
+
+                // Planet name
+                const plMatch = snippet.match(/class=["'][^"']*planetname[^"']*["'][^>]*>([\s\S]*?)<\/(?:span|a|div)>/i);
+                const planetName = plMatch ? plMatch[1].replace(/<[^>]+>/g, '').trim() : `Planeta ${pos}`;
+
+                // Status
+                let status = '';
+                if (snippet.includes('status_abbr_longinactive')) status = 'I';
+                else if (snippet.includes('status_abbr_inactive')) status = 'i';
+                else if (snippet.includes('status_abbr_vacation')) status = 'v';
+                else if (snippet.includes('status_abbr_banned')) status = 'b';
+
+                // Moon
+                const hasMoon = snippet.includes('cellMoon') && (snippet.includes('micromoon') || snippet.includes('moon.gif'));
+
+                planets.push({
+                    galaxy,
+                    system,
+                    position: pos,
+                    isMoon: false,
+                    planetName,
+                    name: planetName,
+                    playerName,
+                    playerId: 0,
+                    allianceTag: '',
+                    allianceId: 0,
+                    status,
+                    playerStatus: status,
+                    hasMoon,
+                    debris: null,
+                    updatedAt: Date.now()
+                });
+            }
         }
 
         return { galaxy, system, planets };
     }
-}
 
+    /**
+     * Extracts full system data directly from active document DOM
+     */
+    static parseFromLiveDOM(doc = (typeof document !== 'undefined' ? document : null)) {
+        if (!doc) return null;
+
+        const gInput = doc.querySelector('#galaxy_input, input[name="galaxy"]');
+        const sInput = doc.querySelector('#system_input, input[name="system"]');
+        if (!gInput || !sInput) return null;
+
+        const galaxy = parseInt(gInput.value, 10);
+        const system = parseInt(sInput.value, 10);
+        if (!galaxy || !system) return null;
+
+        const planets = [];
+        for (let pos = 1; pos <= 15; pos++) {
+            const row = doc.getElementById(`galaxyRow${pos}`) || doc.querySelector(`[id="galaxyRow${pos}"]`);
+            if (!row) continue;
+            if (row.classList.contains('empty_filter')) continue;
+
+            const extracted = this.extractRowFromElement(row, galaxy, system, pos);
+            if (extracted) {
+                planets.push(extracted.planet);
+                if (extracted.moon) planets.push(extracted.moon);
+            }
+        }
+
+        return { galaxy, system, planets };
+    }
+
+    static extractRowFromElement(row, galaxy, system, pos) {
+        // Player Name
+        const playerEl = row.querySelector('.cellPlayerName .playerName, .cellPlayerName, .cellPlayer');
+        let playerName = '';
+        if (playerEl) {
+            const clone = playerEl.cloneNode(true);
+            clone.querySelectorAll('.galaxyTooltip, div, ul, pre').forEach(n => n.remove());
+            playerName = clone.textContent.trim();
+        }
+
+        // Planet Name
+        const planetEl = row.querySelector('.cellPlanet .planetName, .cellPlanetName .planetName, .cellPlanet, .cellPlanetName');
+        let planetName = `Planeta ${pos}`;
+        if (planetEl) {
+            const clone = planetEl.cloneNode(true);
+            clone.querySelectorAll('.galaxyTooltip, div').forEach(n => n.remove());
+            const text = clone.textContent.trim();
+            if (text) planetName = text;
+        }
+
+        // Player ID
+        let playerId = 0;
+        const pAttr = row.getAttribute('data-player-id') || row.querySelector('[data-player-id]')?.getAttribute('data-player-id');
+        if (pAttr) playerId = parseInt(pAttr, 10);
+
+        // Alliance Tag
+        const allyEl = row.querySelector('.cellAlliance .allianceTag, .cellAlliance, .cellAllianceName');
+        let allianceTag = '';
+        if (allyEl) {
+            const clone = allyEl.cloneNode(true);
+            clone.querySelectorAll('.galaxyTooltip, div').forEach(n => n.remove());
+            allianceTag = clone.textContent.trim().replace(/^\[|\]$/g, '');
+        }
+
+        // Player Status
+        let status = '';
+        if (row.querySelector('.status_abbr_longinactive')) status = 'I';
+        else if (row.querySelector('.status_abbr_inactive')) status = 'i';
+        else if (row.querySelector('.status_abbr_vacation')) status = 'v';
+        else if (row.querySelector('.status_abbr_banned')) status = 'b';
+        else if (row.querySelector('.status_abbr_outlaw')) status = 'bandit';
+        else if (row.querySelector('.status_abbr_honorableTarget')) status = 'hp';
+
+        // Moon
+        const moonCell = row.querySelector('.cellMoon');
+        const moonAnchor = moonCell?.querySelector('a, img, .micromoon');
+        const moonMicro = moonCell?.querySelector('.micromoon');
+        const hasMoon = !!(moonAnchor || moonMicro);
+        let moonSize = 0;
+        if (hasMoon && moonCell) {
+            const text = moonCell.getAttribute('title') || 
+                         moonCell.getAttribute('data-tooltip-content') || 
+                         moonAnchor?.getAttribute('title') || 
+                         moonAnchor?.getAttribute('data-tooltip-content') || 
+                         moonCell.innerHTML || '';
+            const match = text.match(/(\d{3,5})\s*km/i);
+            if (match) moonSize = parseInt(match[1], 10);
+        }
+
+        // Debris Field
+        let debris = null;
+        const debrisCell = row.querySelector('.cellDebris');
+        const debrisItem = debrisCell?.querySelector('a, span, img');
+        if (debrisCell && (debrisItem || debrisCell.textContent.trim() !== '' || debrisCell.getAttribute('title'))) {
+            const text = debrisCell.getAttribute('title') || 
+                         debrisCell.getAttribute('data-tooltip-content') || 
+                         debrisItem?.getAttribute('title') || 
+                         debrisItem?.getAttribute('data-tooltip-content') || 
+                         debrisCell.textContent || '';
+            const mMatch = text.match(/Metal:\s*([\d\.,]+)/i) || text.match(/([\d\.,]+)\s*Metal/i);
+            const cMatch = text.match(/(?:Cristal|Crystal):\s*([\d\.,]+)/i) || text.match(/([\d\.,]+)\s*(?:Cristal|Crystal)/i);
+            const metal = mMatch ? parseInt(mMatch[1].replace(/[^\d]/g, ''), 10) : 0;
+            const crystal = cMatch ? parseInt(cMatch[1].replace(/[^\d]/g, ''), 10) : 0;
+            if (metal > 0 || crystal > 0) {
+                debris = { metal, crystal };
+            }
+        }
+
+        // Ignore uncolonized empty slots
+        if (!playerName && !playerId && !debris && !hasMoon) {
+            return null;
+        }
+
+        const planet = {
+            galaxy,
+            system,
+            position: pos,
+            isMoon: false,
+            planetName,
+            name: planetName,
+            planet_name: planetName,
+            playerName,
+            player_name: playerName,
+            playerId,
+            player_id: playerId,
+            allianceTag,
+            alliance_tag: allianceTag,
+            allianceId: 0,
+            status,
+            playerStatus: status,
+            hasMoon,
+            has_moon: hasMoon,
+            moonSize,
+            moon_size: moonSize,
+            debris,
+            has_debris: !!debris,
+            debris_metal: debris?.metal || 0,
+            debris_crystal: debris?.crystal || 0,
+            updatedAt: Date.now()
+        };
+
+        const moon = hasMoon ? {
+            galaxy,
+            system,
+            position: pos,
+            isMoon: true,
+            planetName: `Luna ${pos}`,
+            name: `Luna ${pos}`,
+            planet_name: `Luna ${pos}`,
+            playerName,
+            player_name: playerName,
+            playerId,
+            player_id: playerId,
+            allianceTag,
+            alliance_tag: allianceTag,
+            allianceId: 0,
+            status,
+            playerStatus: status,
+            moonSize,
+            moon_size: moonSize,
+            debris: null,
+            updatedAt: Date.now()
+        } : null;
+
+        return { planet, moon };
+    }
+}
 
 // ==========================================
 // SOURCE: src/userscript/parser-reports.js
@@ -1511,7 +1763,7 @@ class HighscoreParser {
 // ==========================================
 /**
  * Passive Network Interceptor for OGame
- * Hooks window.fetch and XMLHttpRequest to monitor and capture in-game telemetry
+ * Hooks window.fetch, XMLHttpRequest, and Live DOM mutations to capture in-game telemetry
  * without altering native game behavior (Strict Anti-Ban Compliance).
  */
 
@@ -1519,11 +1771,13 @@ class HighscoreParser {
 
 
 class NetworkInterceptor {
-    constructor(storageEngine, onDataCaptured = null) {
+    constructor(storageEngine, onDataCaptured = null, syncUrl = 'http://localhost:8080/api/sync.php') {
         this.storage = storageEngine;
         this.onDataCaptured = onDataCaptured;
+        this.syncUrl = syncUrl;
         this.active = false;
         this.telemetryLog = [];
+        this.lastParsedCoord = '';
     }
 
     logEvent(type, summary, details = null) {
@@ -1540,7 +1794,7 @@ class NetworkInterceptor {
     }
 
     /**
-     * Attaches passive hooks to fetch and XMLHttpRequest
+     * Attaches passive hooks to fetch, XMLHttpRequest and Live DOM observer
      */
     start() {
         if (this.active) return;
@@ -1548,6 +1802,7 @@ class NetworkInterceptor {
 
         this.hookFetch();
         this.hookXHR();
+        this.hookLiveDOM();
         console.log("[Galaxytool-Modern] Passive Network Interceptor active.");
         this.logEvent('system', 'Interceptor pasivo activado y en escucha.');
     }
@@ -1563,7 +1818,7 @@ class NetworkInterceptor {
                 const url = (args[0] && typeof args[0] === 'string') ? args[0] : (args[0]?.url || '');
                 const clone = response.clone();
 
-                if (url.includes('page=galaxyContent') || url.includes('component=galaxy')) {
+                if (url.includes('galaxyContent') || url.includes('component=galaxy') || url.includes('page=galaxy')) {
                     clone.text().then(text => self.handleGalaxyResponse(text));
                 } else if (url.includes('page=messages') || url.includes('tab=espionage')) {
                     clone.text().then(text => self.handleReportResponse(text));
@@ -1592,7 +1847,7 @@ class NetworkInterceptor {
             this.addEventListener('load', function() {
                 try {
                     const url = this._gt_url || '';
-                    if (url.includes('page=galaxyContent') || url.includes('component=galaxy')) {
+                    if (url.includes('galaxyContent') || url.includes('component=galaxy') || url.includes('page=galaxy')) {
                         self.handleGalaxyResponse(this.responseText);
                     } else if (url.includes('page=messages') || url.includes('tab=espionage')) {
                         self.handleReportResponse(this.responseText);
@@ -1607,10 +1862,56 @@ class NetworkInterceptor {
         };
     }
 
+    /**
+     * Observes live DOM for initial load and dynamic galaxy updates
+     */
+    hookLiveDOM() {
+        if (typeof document === 'undefined') return;
+
+        const checkDOM = () => {
+            const parsed = GalaxyParser.parseFromLiveDOM(document);
+            if (parsed && parsed.planets && parsed.planets.length > 0) {
+                const coordKey = `${parsed.galaxy}:${parsed.system}`;
+                if (this.lastParsedCoord !== coordKey) {
+                    this.lastParsedCoord = coordKey;
+                    this.processGalaxyData(parsed);
+                }
+            }
+        };
+
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', () => setTimeout(checkDOM, 600));
+        } else {
+            setTimeout(checkDOM, 400);
+        }
+
+        if (typeof MutationObserver !== 'undefined') {
+            const observer = new MutationObserver(() => {
+                const galaxyContent = document.getElementById('galaxyContent');
+                if (galaxyContent) {
+                    checkDOM();
+                }
+            });
+            observer.observe(document.body, { childList: true, subtree: true });
+        }
+    }
+
     async handleGalaxyResponse(content) {
-        const parsed = GalaxyParser.parse(content);
+        let parsed = GalaxyParser.parse(content);
+        if (!parsed || !parsed.planets || parsed.planets.length === 0) {
+            // Fallback to reading the live DOM if snippet was minimal
+            if (typeof document !== 'undefined') {
+                parsed = GalaxyParser.parseFromLiveDOM(document);
+            }
+        }
         if (!parsed || !parsed.planets || parsed.planets.length === 0) return;
 
+        const coordKey = `${parsed.galaxy}:${parsed.system}`;
+        this.lastParsedCoord = coordKey;
+        await this.processGalaxyData(parsed);
+    }
+
+    async processGalaxyData(parsed) {
         for (const planet of parsed.planets) {
             await this.storage.savePlanet(planet);
             if (planet.playerId) {
@@ -1625,9 +1926,17 @@ class NetworkInterceptor {
             }
         }
 
-        const summary = `Sistema ${parsed.galaxy}:${parsed.system} interceptado (${parsed.planets.length} cuerpos celestes guardados)`;
+        const summary = `Sistema ${parsed.galaxy}:${parsed.system} guardado (${parsed.planets.length} cuerpos celestes)`;
         console.log(`[Galaxytool-Modern] ${summary}`);
         this.logEvent('galaxy', summary, { galaxy: parsed.galaxy, system: parsed.system, count: parsed.planets.length });
+
+        // Sync in background to local API bridge for Standalone Dashboard
+        this.syncToLocalBackend({
+            type: 'galaxy',
+            galaxy: parsed.galaxy,
+            system: parsed.system,
+            planets: parsed.planets
+        });
 
         if (this.onDataCaptured) {
             this.onDataCaptured({ type: 'galaxy', data: parsed, summary });
@@ -1642,6 +1951,12 @@ class NetworkInterceptor {
         const summary = `Reporte de espionaje [${parsed.galaxy}:${parsed.system}:${parsed.position}${parsed.isMoon ? ' Luna' : ''}] interceptado`;
         console.log(`[Galaxytool-Modern] ${summary}`);
         this.logEvent('report', summary, { coords: `${parsed.galaxy}:${parsed.system}:${parsed.position}` });
+
+        // Sync in background to local API bridge
+        this.syncToLocalBackend({
+            type: 'report',
+            data: saved
+        });
 
         if (this.onDataCaptured) {
             this.onDataCaptured({ type: 'report', data: saved, summary });
@@ -1673,8 +1988,31 @@ class NetworkInterceptor {
             this.onDataCaptured({ type: 'highscore', data: parsed, summary });
         }
     }
-}
 
+    syncToLocalBackend(payload) {
+        if (!this.syncUrl) return;
+
+        try {
+            if (typeof GM_xmlhttpRequest === 'function') {
+                GM_xmlhttpRequest({
+                    method: 'POST',
+                    url: this.syncUrl,
+                    headers: { 'Content-Type': 'application/json' },
+                    data: JSON.stringify(payload),
+                    onload: () => {},
+                    onerror: () => {}
+                });
+            } else if (typeof fetch === 'function') {
+                fetch(this.syncUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload),
+                    mode: 'cors'
+                }).catch(() => {});
+            }
+        } catch (_) {}
+    }
+}
 
 // ==========================================
 // SOURCE: src/ui/hud.js

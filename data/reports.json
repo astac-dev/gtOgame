@@ -1,0 +1,26 @@
+{
+    "1": {
+        "galaxy": 2,
+        "system": 140,
+        "position": 1,
+        "isMoon": false,
+        "timestamp": 1730503000,
+        "resources": {
+            "metal": 3200000,
+            "crystal": 1600000,
+            "deuterium": 400000
+        },
+        "fleet": {
+            "SC": 50,
+            "LC": 10,
+            "CR": 20,
+            "CRAW": 8,
+            "REAP": 5,
+            "PATH": 15
+        },
+        "playerClass": 0,
+        "lifeform": 0,
+        "coordKey": "2:140:1:0",
+        "id": 1
+    }
+}

@@ -1,6 +1,6 @@
 /**
  * Passive Network Interceptor for OGame
- * Hooks window.fetch and XMLHttpRequest to monitor and capture in-game telemetry
+ * Hooks window.fetch, XMLHttpRequest, and Live DOM mutations to capture in-game telemetry
  * without altering native game behavior (Strict Anti-Ban Compliance).
  */
 
@@ -9,11 +9,13 @@ import { ReportParser } from './parser-reports.js';
 import { HighscoreParser } from './parser-highscore.js';
 
 export class NetworkInterceptor {
-    constructor(storageEngine, onDataCaptured = null) {
+    constructor(storageEngine, onDataCaptured = null, syncUrl = 'http://localhost:8080/api/sync.php') {
         this.storage = storageEngine;
         this.onDataCaptured = onDataCaptured;
+        this.syncUrl = syncUrl;
         this.active = false;
         this.telemetryLog = [];
+        this.lastParsedCoord = '';
     }
 
     logEvent(type, summary, details = null) {
@@ -30,7 +32,7 @@ export class NetworkInterceptor {
     }
 
     /**
-     * Attaches passive hooks to fetch and XMLHttpRequest
+     * Attaches passive hooks to fetch, XMLHttpRequest and Live DOM observer
      */
     start() {
         if (this.active) return;
@@ -38,6 +40,7 @@ export class NetworkInterceptor {
 
         this.hookFetch();
         this.hookXHR();
+        this.hookLiveDOM();
         console.log("[Galaxytool-Modern] Passive Network Interceptor active.");
         this.logEvent('system', 'Interceptor pasivo activado y en escucha.');
     }
@@ -53,7 +56,7 @@ export class NetworkInterceptor {
                 const url = (args[0] && typeof args[0] === 'string') ? args[0] : (args[0]?.url || '');
                 const clone = response.clone();
 
-                if (url.includes('page=galaxyContent') || url.includes('component=galaxy')) {
+                if (url.includes('galaxyContent') || url.includes('component=galaxy') || url.includes('page=galaxy')) {
                     clone.text().then(text => self.handleGalaxyResponse(text));
                 } else if (url.includes('page=messages') || url.includes('tab=espionage')) {
                     clone.text().then(text => self.handleReportResponse(text));
@@ -82,7 +85,7 @@ export class NetworkInterceptor {
             this.addEventListener('load', function() {
                 try {
                     const url = this._gt_url || '';
-                    if (url.includes('page=galaxyContent') || url.includes('component=galaxy')) {
+                    if (url.includes('galaxyContent') || url.includes('component=galaxy') || url.includes('page=galaxy')) {
                         self.handleGalaxyResponse(this.responseText);
                     } else if (url.includes('page=messages') || url.includes('tab=espionage')) {
                         self.handleReportResponse(this.responseText);
@@ -97,10 +100,56 @@ export class NetworkInterceptor {
         };
     }
 
+    /**
+     * Observes live DOM for initial load and dynamic galaxy updates
+     */
+    hookLiveDOM() {
+        if (typeof document === 'undefined') return;
+
+        const checkDOM = () => {
+            const parsed = GalaxyParser.parseFromLiveDOM(document);
+            if (parsed && parsed.planets && parsed.planets.length > 0) {
+                const coordKey = `${parsed.galaxy}:${parsed.system}`;
+                if (this.lastParsedCoord !== coordKey) {
+                    this.lastParsedCoord = coordKey;
+                    this.processGalaxyData(parsed);
+                }
+            }
+        };
+
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', () => setTimeout(checkDOM, 600));
+        } else {
+            setTimeout(checkDOM, 400);
+        }
+
+        if (typeof MutationObserver !== 'undefined') {
+            const observer = new MutationObserver(() => {
+                const galaxyContent = document.getElementById('galaxyContent');
+                if (galaxyContent) {
+                    checkDOM();
+                }
+            });
+            observer.observe(document.body, { childList: true, subtree: true });
+        }
+    }
+
     async handleGalaxyResponse(content) {
-        const parsed = GalaxyParser.parse(content);
+        let parsed = GalaxyParser.parse(content);
+        if (!parsed || !parsed.planets || parsed.planets.length === 0) {
+            // Fallback to reading the live DOM if snippet was minimal
+            if (typeof document !== 'undefined') {
+                parsed = GalaxyParser.parseFromLiveDOM(document);
+            }
+        }
         if (!parsed || !parsed.planets || parsed.planets.length === 0) return;
 
+        const coordKey = `${parsed.galaxy}:${parsed.system}`;
+        this.lastParsedCoord = coordKey;
+        await this.processGalaxyData(parsed);
+    }
+
+    async processGalaxyData(parsed) {
         for (const planet of parsed.planets) {
             await this.storage.savePlanet(planet);
             if (planet.playerId) {
@@ -115,9 +164,17 @@ export class NetworkInterceptor {
             }
         }
 
-        const summary = `Sistema ${parsed.galaxy}:${parsed.system} interceptado (${parsed.planets.length} cuerpos celestes guardados)`;
+        const summary = `Sistema ${parsed.galaxy}:${parsed.system} guardado (${parsed.planets.length} cuerpos celestes)`;
         console.log(`[Galaxytool-Modern] ${summary}`);
         this.logEvent('galaxy', summary, { galaxy: parsed.galaxy, system: parsed.system, count: parsed.planets.length });
+
+        // Sync in background to local API bridge for Standalone Dashboard
+        this.syncToLocalBackend({
+            type: 'galaxy',
+            galaxy: parsed.galaxy,
+            system: parsed.system,
+            planets: parsed.planets
+        });
 
         if (this.onDataCaptured) {
             this.onDataCaptured({ type: 'galaxy', data: parsed, summary });
@@ -132,6 +189,12 @@ export class NetworkInterceptor {
         const summary = `Reporte de espionaje [${parsed.galaxy}:${parsed.system}:${parsed.position}${parsed.isMoon ? ' Luna' : ''}] interceptado`;
         console.log(`[Galaxytool-Modern] ${summary}`);
         this.logEvent('report', summary, { coords: `${parsed.galaxy}:${parsed.system}:${parsed.position}` });
+
+        // Sync in background to local API bridge
+        this.syncToLocalBackend({
+            type: 'report',
+            data: saved
+        });
 
         if (this.onDataCaptured) {
             this.onDataCaptured({ type: 'report', data: saved, summary });
@@ -163,5 +226,28 @@ export class NetworkInterceptor {
             this.onDataCaptured({ type: 'highscore', data: parsed, summary });
         }
     }
-}
 
+    syncToLocalBackend(payload) {
+        if (!this.syncUrl) return;
+
+        try {
+            if (typeof GM_xmlhttpRequest === 'function') {
+                GM_xmlhttpRequest({
+                    method: 'POST',
+                    url: this.syncUrl,
+                    headers: { 'Content-Type': 'application/json' },
+                    data: JSON.stringify(payload),
+                    onload: () => {},
+                    onerror: () => {}
+                });
+            } else if (typeof fetch === 'function') {
+                fetch(this.syncUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload),
+                    mode: 'cors'
+                }).catch(() => {});
+            }
+        } catch (_) {}
+    }
+}

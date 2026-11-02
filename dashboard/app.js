@@ -45,6 +45,14 @@ class DashboardApp {
         this.setupEventListeners();
         this.registerServiceWorker();
         await this.loadInitialView();
+        this.startLiveSync();
+    }
+
+    startLiveSync() {
+        setInterval(async () => {
+            await this.syncFromAPIBridge();
+            this.updateStats();
+        }, 3000);
     }
 
     // ==========================================
@@ -91,7 +99,26 @@ class DashboardApp {
         }
     }
 
+    async syncFromAPIBridge() {
+        try {
+            const res = await fetch('../api/sync.php');
+            if (!res.ok) return;
+            const data = await res.json();
+            if (data.planets && Array.isArray(data.planets)) {
+                for (const p of data.planets) {
+                    await this.savePlanet(p);
+                }
+            }
+            if (data.reports && Array.isArray(data.reports)) {
+                for (const r of data.reports) {
+                    await this.saveReport(r);
+                }
+            }
+        } catch (_) {}
+    }
+
     async getAllPlanets() {
+        await this.syncFromAPIBridge();
         if (!this.db) return Array.from(this.memoryStore.planets.values());
         return new Promise((resolve) => {
             const tx = this.db.transaction('planets', 'readonly');
@@ -102,6 +129,7 @@ class DashboardApp {
     }
 
     async getAllReports() {
+        await this.syncFromAPIBridge();
         if (!this.db) return Array.from(this.memoryStore.reports.values());
         return new Promise((resolve) => {
             const tx = this.db.transaction('reports', 'readonly');
@@ -112,6 +140,20 @@ class DashboardApp {
     }
 
     async getSystemPlanets(galaxy, system) {
+        // First try fetching latest from API sync bridge for immediate real-time view
+        try {
+            const res = await fetch(`../api/sync.php?g=${galaxy}&s=${system}`);
+            if (res.ok) {
+                const data = await res.json();
+                if (data.planets && Array.isArray(data.planets) && data.planets.length > 0) {
+                    for (const p of data.planets) {
+                        await this.savePlanet(p);
+                    }
+                    return data.planets.sort((a, b) => a.position - b.position);
+                }
+            }
+        } catch (_) {}
+
         if (!this.db) {
             return Array.from(this.memoryStore.planets.values())
                 .filter(p => p.galaxy === galaxy && p.system === system)
