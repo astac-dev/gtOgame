@@ -1,0 +1,1994 @@
+// ==UserScript==
+// @name         Galaxytool Modern - Asynchronous Alliance Intelligence
+// @namespace    https://galaxytool.modern/
+// @version      6.0.0
+// @description  Local-First, Zero-Database, Asynchronous Intelligence & Stealth HUD for Modern OGame (v7 - v11+)
+// @author       Galaxytool Modern Team
+// @match        *://*.ogame.gameforge.com/game/index.php*
+// @run-at       document-start
+// @grant        none
+// ==/UserScript==
+
+(function() {
+'use strict';
+
+console.log("[Galaxytool-Modern] Bootstrapping Asynchronous Alliance Core v6.0.0...");
+
+// ==========================================
+// SOURCE: src/core/constants.js
+// ==========================================
+/**
+ * OGame Modern Core Constants (v7 - v11+)
+ * Full 17 ships mapping, classes, lifeforms, and protocol constants.
+ */
+
+const PROTOCOL_MAGIC = 0x47; // 'G' for Galaxytool
+const PROTOCOL_VERSION = 1;
+
+const SHIPS = [
+    { id: 202, key: 'SC', legacy: 'kt', name: 'Nave pequeña de carga', capacity: 5000, speed: 5000 },
+    { id: 203, key: 'LC', legacy: 'gt', name: 'Nave grande de carga', capacity: 25000, speed: 7500 },
+    { id: 204, key: 'LF', legacy: 'lj', name: 'Cazador ligero', capacity: 50, speed: 12500 },
+    { id: 205, key: 'HF', legacy: 'sj', name: 'Cazador pesado', capacity: 100, speed: 10000 },
+    { id: 206, key: 'CR', legacy: 'krz', name: 'Crucero', capacity: 800, speed: 15000 },
+    { id: 207, key: 'BS', legacy: 'ss', name: 'Nave de batalla', capacity: 1500, speed: 10000 },
+    { id: 208, key: 'COL', legacy: 'kolo', name: 'Colonizador', capacity: 7500, speed: 2500 },
+    { id: 209, key: 'REC', legacy: 'rec', name: 'Reciclador', capacity: 20000, speed: 2000 },
+    { id: 210, key: 'ESP', legacy: 'spio', name: 'Sonda de espionaje', capacity: 5, speed: 100000000 },
+    { id: 211, key: 'BOM', legacy: 'bomb', name: 'Bombardero', capacity: 500, speed: 4000 },
+    { id: 212, key: 'SAT', legacy: 'sat', name: 'Satélite solar', capacity: 0, speed: 0 },
+    { id: 213, key: 'DEST', legacy: 'zerri', name: 'Destructor', capacity: 2000, speed: 5000 },
+    { id: 214, key: 'RIP', legacy: 'ds', name: 'Estrella de la muerte', capacity: 1000000, speed: 100 },
+    { id: 215, key: 'BC', legacy: 'skrz', name: 'Acorazado', capacity: 750, speed: 10000 },
+    // Modern v7+ Ships
+    { id: 217, key: 'CRAW', legacy: 'craw', name: 'Taladrador (Crawler)', capacity: 0, speed: 0 },
+    { id: 218, key: 'REAP', legacy: 'reap', name: 'Segador (Reaper)', capacity: 10000, speed: 7000 },
+    { id: 219, key: 'PATH', legacy: 'path', name: 'Explorador (Pathfinder)', capacity: 10000, speed: 12000 }
+];
+
+const SHIP_KEY_INDEX = {};
+const SHIP_ID_INDEX = {};
+SHIPS.forEach((ship, idx) => {
+    SHIP_KEY_INDEX[ship.key] = idx;
+    SHIP_ID_INDEX[ship.id] = idx;
+    if (ship.legacy) SHIP_KEY_INDEX[ship.legacy] = idx;
+});
+
+const PLAYER_CLASSES = {
+    NONE: 0,
+    COLLECTOR: 1,
+    GENERAL: 2,
+    DISCOVERER: 3
+};
+
+const ALLIANCE_CLASSES = {
+    NONE: 0,
+    TRADER: 1,
+    WARRIORS: 2,
+    RESEARCHERS: 3
+};
+
+const LIFEFORMS = {
+    NONE: 0,
+    HUMANS: 1,
+    ROCKTAL: 2,
+    MECHAS: 3,
+    KAELESH: 4
+};
+
+
+// ==========================================
+// SOURCE: src/core/encoder.js
+// ==========================================
+/**
+ * OGame Modern Bitpacking Binary Encoder
+ * High-density binary serialization for espionage reports and galaxy coordinates.
+ */
+
+
+// Base Epoch: 2026-01-01 00:00:00 UTC in seconds
+const EPOCH_BASE_2026 = 1767225600;
+
+class BinaryEncoder {
+    constructor() {
+        this.buffer = new Uint8Array(1024);
+        this.offset = 0;
+    }
+
+    ensureCapacity(needed) {
+        if (this.offset + needed > this.buffer.length) {
+            const newBuf = new Uint8Array(Math.max(this.buffer.length * 2, this.offset + needed));
+            newBuf.set(this.buffer);
+            this.buffer = newBuf;
+        }
+    }
+
+    writeUint8(val) {
+        this.ensureCapacity(1);
+        this.buffer[this.offset++] = val & 0xFF;
+    }
+
+    writeUint16(val) {
+        this.ensureCapacity(2);
+        this.buffer[this.offset++] = (val >> 8) & 0xFF;
+        this.buffer[this.offset++] = val & 0xFF;
+    }
+
+    writeUint32(val) {
+        this.ensureCapacity(4);
+        this.buffer[this.offset++] = (val >> 24) & 0xFF;
+        this.buffer[this.offset++] = (val >> 16) & 0xFF;
+        this.buffer[this.offset++] = (val >> 8) & 0xFF;
+        this.buffer[this.offset++] = val & 0xFF;
+    }
+
+    writeVarint(val) {
+        let v = Math.max(0, Math.floor(val));
+        while (v >= 0x80) {
+            this.writeUint8((v & 0x7F) | 0x80);
+            v = Math.floor(v / 128);
+        }
+        this.writeUint8(v & 0x7F);
+    }
+
+    getBytes() {
+        return this.buffer.slice(0, this.offset);
+    }
+}
+
+class BinaryDecoder {
+    constructor(uint8Array) {
+        this.buffer = uint8Array;
+        this.offset = 0;
+    }
+
+    readUint8() {
+        if (this.offset >= this.buffer.length) throw new Error("Unexpected end of buffer");
+        return this.buffer[this.offset++];
+    }
+
+    readUint16() {
+        const b1 = this.readUint8();
+        const b2 = this.readUint8();
+        return (b1 << 8) | b2;
+    }
+
+    readUint32() {
+        const b1 = this.readUint8();
+        const b2 = this.readUint8();
+        const b3 = this.readUint8();
+        const b4 = this.readUint8();
+        return (((b1 << 24) >>> 0) | (b2 << 16) | (b3 << 8) | b4) >>> 0;
+    }
+
+    readVarint() {
+        let result = 0;
+        let shift = 0;
+        while (true) {
+            const byte = this.readUint8();
+            result += (byte & 0x7F) * Math.pow(2, shift);
+            if ((byte & 0x80) === 0) break;
+            shift += 7;
+            if (shift > 49) throw new Error("Varint overflow");
+        }
+        return result;
+    }
+
+    getRemaining() {
+        return this.buffer.length - this.offset;
+    }
+}
+
+/**
+ * Main Espionage & Military Report Serializer
+ */
+class OGameReportSerializer {
+    /**
+     * Packs an espionage report into a tight binary buffer (~40-45 bytes)
+     * @param {Object} report
+     * @returns {Uint8Array}
+     */
+    static pack(report) {
+        const enc = new BinaryEncoder();
+
+        // 1. Magic & Version (2 bytes)
+        enc.writeUint8(PROTOCOL_MAGIC);
+        enc.writeUint8(PROTOCOL_VERSION);
+
+        // 2. Packed Coordinates & Flags (4 bytes)
+        // [Galaxy: 4b (1-9)] [System: 10b (1-499)] [Position: 4b (1-15)] [Moon: 1b] [Class: 3b] [Lifeform: 3b]
+        const galaxy = (report.galaxy || 1) & 0x0F;
+        const system = (report.system || 1) & 0x03FF;
+        const position = (report.position || 1) & 0x0F;
+        const isMoon = report.isMoon ? 1 : 0;
+        const playerClass = (report.playerClass || 0) & 0x07;
+        const lifeform = (report.lifeform || 0) & 0x07;
+
+        let coordWord = 0;
+        coordWord |= (galaxy << 21);
+        coordWord |= (system << 11);
+        coordWord |= (position << 7);
+        coordWord |= (isMoon << 6);
+        coordWord |= (playerClass << 3);
+        coordWord |= lifeform;
+        enc.writeUint32(coordWord >>> 0);
+
+        // 3. Timestamp: minutes relative to EPOCH_BASE_2026 (4 bytes)
+        const tsSeconds = report.timestamp ? Math.floor(report.timestamp) : Math.floor(Date.now() / 1000);
+        const relMinutes = Math.max(0, Math.floor((tsSeconds - EPOCH_BASE_2026) / 60));
+        enc.writeUint32(relMinutes);
+
+        // 4. Resources (Metal, Crystal, Deuterium) via Varints
+        enc.writeVarint(report.resources?.metal || 0);
+        enc.writeVarint(report.resources?.crystal || 0);
+        enc.writeVarint(report.resources?.deuterium || 0);
+
+        // 5. Fleets: 32-bit Bitmask followed by Varints for present ships
+        let fleetMask = 0;
+        const activeShips = [];
+
+        if (report.fleet) {
+            for (let i = 0; i < SHIPS.length; i++) {
+                const ship = SHIPS[i];
+                const count = report.fleet[ship.key] || report.fleet[ship.id] || report.fleet[ship.legacy] || 0;
+                if (count > 0) {
+                    fleetMask |= (1 << i);
+                    activeShips.push(count);
+                }
+            }
+        }
+        enc.writeUint32(fleetMask >>> 0);
+
+        for (const count of activeShips) {
+            enc.writeVarint(count);
+        }
+
+        return enc.getBytes();
+    }
+
+    /**
+     * Unpacks a binary buffer back into an Espionage Report object
+     * @param {Uint8Array} bytes
+     * @returns {Object}
+     */
+    static unpack(bytes) {
+        const dec = new BinaryDecoder(bytes);
+
+        const magic = dec.readUint8();
+        if (magic !== PROTOCOL_MAGIC) throw new Error("Invalid magic byte: not an OGame report packet");
+        const version = dec.readUint8();
+
+        const coordWord = dec.readUint32();
+        const galaxy = (coordWord >> 21) & 0x0F;
+        const system = (coordWord >> 11) & 0x03FF;
+        const position = (coordWord >> 7) & 0x0F;
+        const isMoon = ((coordWord >> 6) & 0x01) === 1;
+        const playerClass = (coordWord >> 3) & 0x07;
+        const lifeform = coordWord & 0x07;
+
+        const relMinutes = dec.readUint32();
+        const timestamp = EPOCH_BASE_2026 + (relMinutes * 60);
+
+        const metal = dec.readVarint();
+        const crystal = dec.readVarint();
+        const deuterium = dec.readVarint();
+
+        const fleetMask = dec.readUint32();
+        const fleet = {};
+
+        for (let i = 0; i < SHIPS.length; i++) {
+            if ((fleetMask & (1 << i)) !== 0) {
+                const count = dec.readVarint();
+                fleet[SHIPS[i].key] = count;
+            }
+        }
+
+        return {
+            version,
+            galaxy,
+            system,
+            position,
+            isMoon,
+            playerClass,
+            lifeform,
+            timestamp,
+            resources: { metal, crystal, deuterium },
+            fleet
+        };
+    }
+}
+
+
+// ==========================================
+// SOURCE: src/core/crypto.js
+// ==========================================
+/**
+ * Web Crypto AES-256-GCM Encryption Engine
+ * End-to-End Encryption for Alliance In-Game Transmissions.
+ * Compatible with modern Browsers (window.crypto) and Node.js v18+ (globalThis.crypto).
+ */
+
+const cryptoObj = typeof globalThis.crypto !== 'undefined' ? globalThis.crypto : null;
+
+class AllianceCrypto {
+    /**
+     * Derives an AES-GCM 256-bit CryptoKey from an alliance shared secret
+     * @param {string} passphrase Shared secret defined by the alliance
+     * @param {Uint8Array} salt 16-byte salt
+     * @returns {Promise<CryptoKey>}
+     */
+    static async deriveKey(passphrase, salt) {
+        if (!cryptoObj?.subtle) {
+            throw new Error("Web Crypto API (crypto.subtle) is not available in this environment");
+        }
+
+        const enc = new TextEncoder();
+        const baseKey = await cryptoObj.subtle.importKey(
+            'raw',
+            enc.encode(passphrase),
+            { name: 'PBKDF2' },
+            false,
+            ['deriveKey']
+        );
+
+        return await cryptoObj.subtle.deriveKey(
+            {
+                name: 'PBKDF2',
+                salt: salt,
+                iterations: 50000,
+                hash: 'SHA-256'
+            },
+            baseKey,
+            { name: 'AES-GCM', length: 256 },
+            false,
+            ['encrypt', 'decrypt']
+        );
+    }
+
+    /**
+     * Encrypts plaintext bytes using AES-256-GCM with static alliance salt & random IV
+     * @param {Uint8Array} data Plaintext binary payload
+     * @param {string} passphrase Alliance secret password
+     * @returns {Promise<Uint8Array>} [12 bytes IV] + [Ciphertext + 16 bytes GCM Auth Tag]
+     */
+    static async encrypt(data, passphrase) {
+        // Deterministic salt for the alliance key derivation so all members can decrypt
+        const salt = new TextEncoder().encode("OGAME_GT_ALLIANCE_SALT_2026");
+        const key = await this.deriveKey(passphrase, salt);
+
+        const iv = new Uint8Array(12);
+        cryptoObj.getRandomValues(iv);
+
+        const ciphertextBuffer = await cryptoObj.subtle.encrypt(
+            { name: 'AES-GCM', iv },
+            key,
+            data
+        );
+
+        const ciphertext = new Uint8Array(ciphertextBuffer);
+        const result = new Uint8Array(iv.length + ciphertext.length);
+        result.set(iv, 0);
+        result.set(ciphertext, iv.length);
+        return result;
+    }
+
+    /**
+     * Decrypts ciphertext bytes using AES-256-GCM
+     * @param {Uint8Array} encryptedBytes [12 bytes IV] + [Ciphertext + 16 bytes Tag]
+     * @param {string} passphrase Alliance secret password
+     * @returns {Promise<Uint8Array>} Decrypted original payload
+     */
+    static async decrypt(encryptedBytes, passphrase) {
+        if (encryptedBytes.length < 28) throw new Error("Encrypted payload too short");
+
+        const salt = new TextEncoder().encode("OGAME_GT_ALLIANCE_SALT_2026");
+        const key = await this.deriveKey(passphrase, salt);
+
+        const iv = encryptedBytes.slice(0, 12);
+        const ciphertext = encryptedBytes.slice(12);
+
+        const decryptedBuffer = await cryptoObj.subtle.decrypt(
+            { name: 'AES-GCM', iv },
+            key,
+            ciphertext
+        );
+
+        return new Uint8Array(decryptedBuffer);
+    }
+}
+
+
+// ==========================================
+// SOURCE: src/core/zero-width.js
+// ==========================================
+/**
+ * Zero-Width Steganography Engine for OGame Chat Transmission
+ * Invisibility encoder: packs binary payloads into human chat messages.
+ */
+
+const ZW_START = '\uFEFF';  // Zero-Width No-Break Space (Header)
+const ZW_END   = '\u2060';  // Word Joiner (Footer)
+const ZW_BIT_0 = '\u200B';  // Zero-Width Space ('00')
+const ZW_BIT_1 = '\u200C';  // Zero-Width Non-Joiner ('01')
+const ZW_BIT_2 = '\u200D';  // Zero-Width Joiner ('10')
+const ZW_BIT_3 = '\u200E';  // Left-to-Right Mark ('11')
+
+const DIBIT_MAP = [ZW_BIT_0, ZW_BIT_1, ZW_BIT_2, ZW_BIT_3];
+const CHAR_TO_DIBIT = {
+    [ZW_BIT_0]: 0,
+    [ZW_BIT_1]: 1,
+    [ZW_BIT_2]: 2,
+    [ZW_BIT_3]: 3
+};
+
+class ZeroWidthSteganography {
+    /**
+     * Converts raw bytes into a compact zero-width invisible character string (2 bits per char)
+     * @param {Uint8Array} bytes
+     * @returns {string} Invisible unicode string
+     */
+    static bytesToZeroWidth(bytes) {
+        let result = ZW_START;
+        for (let i = 0; i < bytes.length; i++) {
+            const b = bytes[i];
+            // Encode byte into 4 dibits (2 bits each)
+            result += DIBIT_MAP[(b >> 6) & 0x03];
+            result += DIBIT_MAP[(b >> 4) & 0x03];
+            result += DIBIT_MAP[(b >> 2) & 0x03];
+            result += DIBIT_MAP[b & 0x03];
+        }
+        result += ZW_END;
+        return result;
+    }
+
+    /**
+     * Extracts and decodes binary bytes from a zero-width string
+     * @param {string} text Containing invisible characters
+     * @returns {Uint8Array|null} Extracted bytes or null if not found
+     */
+    static zeroWidthToBytes(text) {
+        const startIdx = text.indexOf(ZW_START);
+        if (startIdx === -1) return null;
+        const endIdx = text.indexOf(ZW_END, startIdx);
+        if (endIdx === -1) return null;
+
+        const payloadStr = text.substring(startIdx + 1, endIdx);
+        const dibits = [];
+        for (let i = 0; i < payloadStr.length; i++) {
+            const ch = payloadStr[i];
+            if (CHAR_TO_DIBIT[ch] !== undefined) {
+                dibits.push(CHAR_TO_DIBIT[ch]);
+            }
+        }
+
+        if (dibits.length % 4 !== 0) {
+            // Incomplete or corrupted packet
+            return null;
+        }
+
+        const bytes = new Uint8Array(dibits.length / 4);
+        for (let i = 0; i < bytes.length; i++) {
+            const d0 = dibits[i * 4];
+            const d1 = dibits[i * 4 + 1];
+            const d2 = dibits[i * 4 + 2];
+            const d3 = dibits[i * 4 + 3];
+            bytes[i] = (d0 << 6) | (d1 << 4) | (d2 << 2) | d3;
+        }
+
+        return bytes;
+    }
+
+    /**
+     * Injects an invisible binary payload into a normal human message
+     * @param {string} visibleText e.g. "Hola compañeros, buen ataque hoy"
+     * @param {Uint8Array} payload
+     * @returns {string} Text with hidden payload
+     */
+    static inject(visibleText, payload) {
+        const zw = this.bytesToZeroWidth(payload);
+        return visibleText + zw;
+    }
+
+    /**
+     * Extracts payload and returns both payload and clean human text
+     * @param {string} textWithHiddenPayload
+     * @returns {{ cleanText: string, payload: Uint8Array|null }}
+     */
+    static extract(textWithHiddenPayload) {
+        const payload = this.zeroWidthToBytes(textWithHiddenPayload);
+        // Clean all zero-width characters for UI rendering
+        const cleanText = textWithHiddenPayload.replace(/[\uFEFF\u2060\u200B\u200C\u200D\u200E]/g, '');
+        return { cleanText, payload };
+    }
+}
+
+
+// ==========================================
+// SOURCE: src/storage/db.js
+// ==========================================
+/**
+ * OGame Modern Storage Engine (Local-First / Zero-Database)
+ * Dual-Mode Storage:
+ * - Browser: High-performance native IndexedDB (B-Tree indexed, zero CDN dependencies).
+ * - Node.js / CLI: In-memory & JSON file backed storage.
+ */
+
+const DB_NAME = 'OGameGalaxytoolDB';
+const DB_VERSION = 1;
+
+class OGameStorageEngine {
+    constructor(options = {}) {
+        this.isBrowser = typeof window !== 'undefined' && typeof window.indexedDB !== 'undefined';
+        this.db = null;
+        this.memoryStore = {
+            planets: new Map(),
+            reports: new Map(),
+            players: new Map(),
+            alliances: new Map(),
+            config: new Map()
+        };
+    }
+
+    /**
+     * Initializes the database connection and object stores
+     * @returns {Promise<OGameStorageEngine>}
+     */
+    async init() {
+        if (!this.isBrowser) {
+            // Memory mode for Node.js / CLI
+            return this;
+        }
+
+        return new Promise((resolve, reject) => {
+            const request = window.indexedDB.open(DB_NAME, DB_VERSION);
+
+            request.onupgradeneeded = (event) => {
+                const db = event.target.result;
+
+                // 1. Planets Store: Key = "G:S:P:Moon" (e.g. "1:154:3:0")
+                if (!db.objectStoreNames.contains('planets')) {
+                    const planetStore = db.createObjectStore('planets', { keyPath: 'coordKey' });
+                    planetStore.createIndex('galaxy', 'galaxy', { unique: false });
+                    planetStore.createIndex('system', ['galaxy', 'system'], { unique: false });
+                    planetStore.createIndex('playerId', 'playerId', { unique: false });
+                    planetStore.createIndex('updatedAt', 'updatedAt', { unique: false });
+                    planetStore.createIndex('status', 'status', { unique: false }); // i, I, v, etc.
+                }
+
+                // 2. Espionage & Military Reports Store: Key = id
+                if (!db.objectStoreNames.contains('reports')) {
+                    const reportStore = db.createObjectStore('reports', { keyPath: 'id', autoIncrement: true });
+                    reportStore.createIndex('coordKey', 'coordKey', { unique: false });
+                    reportStore.createIndex('timestamp', 'timestamp', { unique: false });
+                    reportStore.createIndex('playerId', 'playerId', { unique: false });
+                }
+
+                // 3. Players Store: Key = id (ogame_playerid)
+                if (!db.objectStoreNames.contains('players')) {
+                    const playerStore = db.createObjectStore('players', { keyPath: 'id' });
+                    playerStore.createIndex('name', 'name', { unique: false });
+                    playerStore.createIndex('allianceId', 'allianceId', { unique: false });
+                    playerStore.createIndex('updatedAt', 'updatedAt', { unique: false });
+                }
+
+                // 4. Alliances Store: Key = id (ogame_allyid)
+                if (!db.objectStoreNames.contains('alliances')) {
+                    const allyStore = db.createObjectStore('alliances', { keyPath: 'id' });
+                    allyStore.createIndex('tag', 'tag', { unique: false });
+                }
+
+                // 5. Config & Alliance Shared Keys Store
+                if (!db.objectStoreNames.contains('config')) {
+                    db.createObjectStore('config', { keyPath: 'key' });
+                }
+            };
+
+            request.onsuccess = (event) => {
+                this.db = event.target.result;
+                resolve(this);
+            };
+
+            request.onerror = (event) => {
+                reject(new Error(`Failed to open IndexedDB: ${event.target.error}`));
+            };
+        });
+    }
+
+    /**
+     * Helper to create coordinate key "G:S:P:M"
+     */
+    static makeCoordKey(galaxy, system, position, isMoon = false) {
+        return `${galaxy}:${system}:${position}:${isMoon ? 1 : 0}`;
+    }
+
+    // ==========================================
+    // PLANETS & GALAXY API
+    // ==========================================
+
+    async savePlanet(planet) {
+        const coordKey = OGameStorageEngine.makeCoordKey(
+            planet.galaxy, planet.system, planet.position, planet.isMoon
+        );
+        const record = {
+            ...planet,
+            coordKey,
+            updatedAt: planet.updatedAt || Date.now()
+        };
+
+        if (!this.isBrowser) {
+            this.memoryStore.planets.set(coordKey, record);
+            return record;
+        }
+
+        return new Promise((resolve, reject) => {
+            const tx = this.db.transaction('planets', 'readwrite');
+            const store = tx.objectStore('planets');
+            const req = store.put(record);
+            req.onsuccess = () => resolve(record);
+            req.onerror = () => reject(req.error);
+        });
+    }
+
+    async getPlanet(galaxy, system, position, isMoon = false) {
+        const coordKey = OGameStorageEngine.makeCoordKey(galaxy, system, position, isMoon);
+
+        if (!this.isBrowser) {
+            return this.memoryStore.planets.get(coordKey) || null;
+        }
+
+        return new Promise((resolve, reject) => {
+            const tx = this.db.transaction('planets', 'readonly');
+            const store = tx.objectStore('planets');
+            const req = store.get(coordKey);
+            req.onsuccess = () => resolve(req.result || null);
+            req.onerror = () => reject(req.error);
+        });
+    }
+
+    async getSystem(galaxy, system) {
+        if (!this.isBrowser) {
+            const result = [];
+            for (const p of this.memoryStore.planets.values()) {
+                if (p.galaxy === galaxy && p.system === system) {
+                    result.push(p);
+                }
+            }
+            return result.sort((a, b) => a.position - b.position);
+        }
+
+        return new Promise((resolve, reject) => {
+            const tx = this.db.transaction('planets', 'readonly');
+            const store = tx.objectStore('planets');
+            const index = store.index('system');
+            const range = IDBKeyRange.only([galaxy, system]);
+            const req = index.getAll(range);
+            req.onsuccess = () => {
+                const sorted = (req.result || []).sort((a, b) => a.position - b.position);
+                resolve(sorted);
+            };
+            req.onerror = () => reject(req.error);
+        });
+    }
+
+    async getAllPlanets() {
+        if (!this.isBrowser) {
+            return Array.from(this.memoryStore.planets.values());
+        }
+
+        return new Promise((resolve, reject) => {
+            const tx = this.db.transaction('planets', 'readonly');
+            const store = tx.objectStore('planets');
+            const req = store.getAll();
+            req.onsuccess = () => resolve(req.result || []);
+            req.onerror = () => reject(req.error);
+        });
+    }
+
+    // ==========================================
+    // ESPIONAGE & COMBAT REPORTS API
+    // ==========================================
+
+    async saveReport(report) {
+        const coordKey = OGameStorageEngine.makeCoordKey(
+            report.galaxy, report.system, report.position, report.isMoon
+        );
+        const record = {
+            ...report,
+            coordKey,
+            timestamp: report.timestamp || Math.floor(Date.now() / 1000)
+        };
+
+        if (!this.isBrowser) {
+            const id = report.id || (this.memoryStore.reports.size + 1);
+            record.id = id;
+            this.memoryStore.reports.set(id, record);
+            return record;
+        }
+
+        return new Promise((resolve, reject) => {
+            const tx = this.db.transaction('reports', 'readwrite');
+            const store = tx.objectStore('reports');
+            const req = store.put(record);
+            req.onsuccess = (e) => {
+                record.id = e.target.result;
+                resolve(record);
+            };
+            req.onerror = () => reject(req.error);
+        });
+    }
+
+    async getLatestReport(galaxy, system, position, isMoon = false) {
+        const coordKey = OGameStorageEngine.makeCoordKey(galaxy, system, position, isMoon);
+
+        if (!this.isBrowser) {
+            let latest = null;
+            for (const r of this.memoryStore.reports.values()) {
+                if (r.coordKey === coordKey) {
+                    if (!latest || r.timestamp > latest.timestamp) {
+                        latest = r;
+                    }
+                }
+            }
+            return latest;
+        }
+
+        return new Promise((resolve, reject) => {
+            const tx = this.db.transaction('reports', 'readonly');
+            const store = tx.objectStore('reports');
+            const index = store.index('coordKey');
+            const req = index.getAll(IDBKeyRange.only(coordKey));
+
+            req.onsuccess = () => {
+                const reports = req.result || [];
+                if (reports.length === 0) return resolve(null);
+                reports.sort((a, b) => b.timestamp - a.timestamp);
+                resolve(reports[0]);
+            };
+            req.onerror = () => reject(req.error);
+        });
+    }
+
+    async getAllReports() {
+        if (!this.isBrowser) {
+            return Array.from(this.memoryStore.reports.values());
+        }
+
+        return new Promise((resolve, reject) => {
+            const tx = this.db.transaction('reports', 'readonly');
+            const store = tx.objectStore('reports');
+            const req = store.getAll();
+            req.onsuccess = () => resolve(req.result || []);
+            req.onerror = () => reject(req.error);
+        });
+    }
+
+    // ==========================================
+    // PLAYERS & ALLIANCES API
+    // ==========================================
+
+    async savePlayer(player) {
+        const record = {
+            ...player,
+            updatedAt: player.updatedAt || Date.now()
+        };
+
+        if (!this.isBrowser) {
+            this.memoryStore.players.set(player.id, record);
+            return record;
+        }
+
+        return new Promise((resolve, reject) => {
+            const tx = this.db.transaction('players', 'readwrite');
+            const store = tx.objectStore('players');
+            const req = store.put(record);
+            req.onsuccess = () => resolve(record);
+            req.onerror = () => reject(req.error);
+        });
+    }
+
+    async getPlayer(playerId) {
+        if (!this.isBrowser) {
+            return this.memoryStore.players.get(playerId) || null;
+        }
+
+        return new Promise((resolve, reject) => {
+            const tx = this.db.transaction('players', 'readonly');
+            const store = tx.objectStore('players');
+            const req = store.get(playerId);
+            req.onsuccess = () => resolve(req.result || null);
+            req.onerror = () => reject(req.error);
+        });
+    }
+
+    // ==========================================
+    // CONFIG & ALLIANCE KEYS API
+    // ==========================================
+
+    async setConfig(key, value) {
+        const record = { key, value };
+        if (!this.isBrowser) {
+            this.memoryStore.config.set(key, value);
+            return value;
+        }
+
+        return new Promise((resolve, reject) => {
+            const tx = this.db.transaction('config', 'readwrite');
+            const store = tx.objectStore('config');
+            const req = store.put(record);
+            req.onsuccess = () => resolve(value);
+            req.onerror = () => reject(req.error);
+        });
+    }
+
+    async getConfig(key, defaultValue = null) {
+        if (!this.isBrowser) {
+            return this.memoryStore.config.has(key) ? this.memoryStore.config.get(key) : defaultValue;
+        }
+
+        return new Promise((resolve, reject) => {
+            const tx = this.db.transaction('config', 'readonly');
+            const store = tx.objectStore('config');
+            const req = store.get(key);
+            req.onsuccess = () => resolve(req.result ? req.result.value : defaultValue);
+            req.onerror = () => reject(req.error);
+        });
+    }
+
+    async clearAll() {
+        if (!this.isBrowser) {
+            this.memoryStore.planets.clear();
+            this.memoryStore.reports.clear();
+            this.memoryStore.players.clear();
+            this.memoryStore.alliances.clear();
+            this.memoryStore.config.clear();
+            return true;
+        }
+
+        return new Promise((resolve, reject) => {
+            const tx = this.db.transaction(['planets', 'reports', 'players', 'alliances'], 'readwrite');
+            tx.objectStore('planets').clear();
+            tx.objectStore('reports').clear();
+            tx.objectStore('players').clear();
+            tx.objectStore('alliances').clear();
+            tx.oncomplete = () => resolve(true);
+            tx.onerror = () => reject(tx.error);
+        });
+    }
+}
+
+
+// ==========================================
+// SOURCE: src/storage/jsonl.js
+// ==========================================
+/**
+ * JSON & JSONL (JSON Lines) Serialization & Analytics Engine
+ * File-system and backup adapter with OGame military looting algorithms.
+ */
+
+
+class JSONLAdapter {
+    /**
+     * Serializes an array of espionage reports into a JSON Lines string
+     * @param {Array<Object>} reports
+     * @returns {string} One JSON document per line
+     */
+    static exportToJSONL(reports) {
+        return reports
+            .map(r => JSON.stringify(r))
+            .join('\n') + '\n';
+    }
+
+    /**
+     * Parses a JSON Lines string into an array of report objects
+     * Robust against empty lines or malformed rows.
+     * @param {string} jsonlContent
+     * @returns {Array<Object>}
+     */
+    static parseFromJSONL(jsonlContent) {
+        const lines = jsonlContent.split(/\r?\n/);
+        const results = [];
+
+        for (let i = 0; i < lines.length; i++) {
+            const trimmed = lines[i].trim();
+            if (!trimmed) continue;
+            try {
+                results.push(JSON.parse(trimmed));
+            } catch (err) {
+                console.warn(`[JSONLAdapter] Skipping corrupted line ${i + 1}: ${err.message}`);
+            }
+        }
+        return results;
+    }
+
+    /**
+     * Partitions a galaxy dataset into blocks of systems (e.g. 100 systems per file)
+     * @param {number} galaxy
+     * @param {number} startSys
+     * @param {number} endSys
+     * @param {Array<Object>} planets
+     * @returns {string} Compact formatted JSON
+     */
+    static exportGalaxyBlock(galaxy, startSys, endSys, planets) {
+        const payload = {
+            g: galaxy,
+            from: startSys,
+            to: endSys,
+            exportedAt: Date.now(),
+            planets: planets.filter(p => p.galaxy === galaxy && p.system >= startSys && p.system <= endSys)
+        };
+        return JSON.stringify(payload, null, 2);
+    }
+
+    /**
+     * Calculates the exact tactical looting requirements for a spy report
+     * Calculates fleet count (SC / LC / PATH) needed to harvest 50% or 75% plunder.
+     * @param {Object} report Espionage report containing resources
+     * @param {number} plunderRatio 0.5 (standard), 0.75 (inactives / honor target)
+     * @returns {Object} Total plunderable resources and ship counts required
+     */
+    static calculatePlunder(report, plunderRatio = 0.5) {
+        const m = report.resources?.metal || 0;
+        const c = report.resources?.crystal || 0;
+        const d = report.resources?.deuterium || 0;
+
+        const plunderMetal = Math.floor(m * plunderRatio);
+        const plunderCrystal = Math.floor(c * plunderRatio);
+        const plunderDeut = Math.floor(d * plunderRatio);
+        const totalPlunder = plunderMetal + plunderCrystal + plunderDeut;
+
+        // Capacity per ship:
+        // SC (Small Cargo - ID 202): 5,000 base
+        // LC (Large Cargo - ID 203): 25,000 base
+        // PATH (Pathfinder - ID 219): 10,000 base
+        return {
+            totalResources: m + c + d,
+            plunderable: {
+                metal: plunderMetal,
+                crystal: plunderCrystal,
+                deuterium: plunderDeut,
+                total: totalPlunder
+            },
+            shipsNeeded: {
+                SC: Math.ceil(totalPlunder / 5000),
+                LC: Math.ceil(totalPlunder / 25000),
+                PATH: Math.ceil(totalPlunder / 10000)
+            }
+        };
+    }
+}
+
+
+// ==========================================
+// SOURCE: src/chat/chat-bus.js
+// ==========================================
+/**
+ * OGame Alliance Chat Asynchronous Sync Bus
+ * Autonomous In-Game Intelligence Propagation using Zero-Width Steganography & E2EE.
+ */
+
+
+
+
+// Natural cover messages to mask zero-width steganographic payloads
+const NATURAL_COVER_MESSAGES = [
+    "Buenas noches compañeros",
+    "Buen vuelo a todos con las expediciones",
+    "Todo tranquilo por mi sector",
+    "Revisando movimientos de flotas en la zona",
+    "Subiendo minas y recolectando escombros",
+    "Ojo con las actividades en los sistemas cercanos",
+    "Coordinando rutas de transporte",
+    "Actualizando bases y defensas planetarias"
+];
+
+class ChatSyncBus {
+    constructor(storageEngine, options = {}) {
+        this.storage = storageEngine;
+        this.alliancePassphrase = options.passphrase || 'DefaultAllianceSecret2026';
+        this.onReportReceived = options.onReportReceived || null;
+        this.queue = [];
+        this.isProcessingQueue = false;
+        this.processedPacketHashes = new Set();
+        this.autoBroadcast = options.autoBroadcast ?? true;
+    }
+
+    /**
+     * Updates the alliance encryption secret
+     * @param {string} passphrase
+     */
+    setPassphrase(passphrase) {
+        this.alliancePassphrase = passphrase;
+    }
+
+    /**
+     * Queues an espionage report to be broadcasted to the alliance via in-game chat
+     * @param {Object} report
+     * @param {string} customCoverMessage Optional human message text
+     */
+    async queueReport(report, customCoverMessage = null) {
+        if (!this.autoBroadcast) return;
+
+        // Deduplication key: G:S:P:Moon:Timestamp
+        const dedupKey = `${report.galaxy}:${report.system}:${report.position}:${report.isMoon ? 1 : 0}:${report.timestamp}`;
+        if (this.processedPacketHashes.has(dedupKey)) {
+            return; // Already broadcasted
+        }
+        this.processedPacketHashes.add(dedupKey);
+
+        this.queue.push({ report, customCoverMessage });
+        this.processQueue();
+    }
+
+    /**
+     * Processes outbound queue with human-like jitter (Anti-Ban compliance - Regla 1)
+     */
+    async processQueue() {
+        if (this.isProcessingQueue || this.queue.length === 0) return;
+        this.isProcessingQueue = true;
+
+        while (this.queue.length > 0) {
+            const item = this.queue.shift();
+            try {
+                const messageWithStego = await this.prepareStegoMessage(item.report, item.customCoverMessage);
+                await this.sendToOGameChat(messageWithStego);
+            } catch (err) {
+                console.error("[ChatSyncBus] Failed to broadcast report packet:", err);
+            }
+
+            if (this.queue.length > 0) {
+                // Jitter: wait 3 to 6 seconds between messages to emulate human typing
+                const jitterMs = 3000 + Math.floor(Math.random() * 3000);
+                await new Promise(resolve => setTimeout(resolve, jitterMs));
+            }
+        }
+
+        this.isProcessingQueue = false;
+    }
+
+    /**
+     * Packs, encrypts, and injects a report into an innocent human chat message
+     * @param {Object} report
+     * @param {string} customCover
+     * @returns {Promise<string>}
+     */
+    async prepareStegoMessage(report, customCover = null) {
+        // 1. Pack report into ~35 bytes
+        const binaryPacket = OGameReportSerializer.pack(report);
+
+        // 2. Encrypt with AES-256-GCM
+        const encryptedPacket = await AllianceCrypto.encrypt(binaryPacket, this.alliancePassphrase);
+
+        // 3. Choose natural cover message
+        const cover = customCover || NATURAL_COVER_MESSAGES[Math.floor(Math.random() * NATURAL_COVER_MESSAGES.length)];
+
+        // 4. Inject zero-width invisible payload
+        return ZeroWidthSteganography.inject(cover, encryptedPacket);
+    }
+
+    /**
+     * Intercepts and parses an incoming chat message from OGame
+     * @param {string} rawMessageText
+     * @param {Object} senderInfo { playerId, playerName, timestamp }
+     * @returns {Promise<Object|null>} Decoded report or null if normal chat
+     */
+    async handleIncomingChatMessage(rawMessageText, senderInfo = {}) {
+        if (!rawMessageText) return null;
+
+        const { cleanText, payload } = ZeroWidthSteganography.extract(rawMessageText);
+        if (!payload) {
+            return null; // Regular chat message without hidden intelligence
+        }
+
+        try {
+            // Decrypt with alliance secret
+            const decryptedBytes = await AllianceCrypto.decrypt(payload, this.alliancePassphrase);
+
+            // Unpack binary report (including all 17 modern ships)
+            const report = OGameReportSerializer.unpack(decryptedBytes);
+
+            // Deduplicate incoming
+            const dedupKey = `${report.galaxy}:${report.system}:${report.position}:${report.isMoon ? 1 : 0}:${report.timestamp}`;
+            this.processedPacketHashes.add(dedupKey);
+
+            // Save automatically into local IndexedDB
+            const savedReport = await this.storage.saveReport(report);
+
+            console.log(`[ChatSyncBus] Inbound intelligence synced for [${report.galaxy}:${report.system}:${report.position}] from ${senderInfo.playerName || 'Alliance mate'}`);
+
+            if (this.onReportReceived) {
+                this.onReportReceived(savedReport, senderInfo, cleanText);
+            }
+
+            return {
+                cleanText,
+                report: savedReport,
+                sender: senderInfo
+            };
+        } catch (err) {
+            // Decryption failure (different alliance passphrase or corrupted packet)
+            console.debug("[ChatSyncBus] Skipping packet with non-matching key:", err.message);
+            return null;
+        }
+    }
+
+    /**
+     * Injects the message into OGame chat input box and submits
+     * Hooked into native OGame DOM
+     */
+    async sendToOGameChat(messageText) {
+        if (typeof document === 'undefined') {
+            console.log("[ChatSyncBus-Mock] Dispatching chat message:", messageText);
+            return;
+        }
+
+        // Modern OGame chat input element
+        const chatInput = document.querySelector('#chatInput') || document.querySelector('.chat_input');
+        const sendBtn = document.querySelector('#chatSend') || document.querySelector('.chat_send_button');
+
+        if (chatInput && sendBtn) {
+            chatInput.value = messageText;
+            chatInput.dispatchEvent(new Event('input', { bubbles: true }));
+            sendBtn.click();
+        } else {
+            console.warn("[ChatSyncBus] OGame chat input not found in DOM");
+        }
+    }
+}
+
+
+// ==========================================
+// SOURCE: src/userscript/parser-galaxy.js
+// ==========================================
+/**
+ * OGame Modern Galaxy Parser
+ * Extracts planets, moons, debris, players, and activity indicators
+ * from modern OGame galaxy responses (JSON or DOM snippets).
+ */
+
+class GalaxyParser {
+    /**
+     * Parses an OGame galaxy response (supports modern JSON payload and DOM fallback)
+     * @param {Object|string} responseData
+     * @returns {Object|null} { galaxy, system, planets: Array<Object> }
+     */
+    static parse(responseData) {
+        if (!responseData) return null;
+
+        // Modern OGame galaxy responses often arrive as JSON
+        if (typeof responseData === 'object' && responseData.galaxy && responseData.system) {
+            return this.parseJSONGalaxy(responseData);
+        }
+
+        if (typeof responseData === 'string') {
+            try {
+                const parsed = JSON.parse(responseData);
+                if (parsed.galaxy && parsed.system) {
+                    return this.parseJSONGalaxy(parsed);
+                }
+            } catch (_) {
+                // Fallback: parse as HTML DOM
+                return this.parseHTMLGalaxy(responseData);
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Parses JSON-based galaxy payload
+     */
+    static parseJSONGalaxy(data) {
+        const galaxy = parseInt(data.galaxy, 10);
+        const system = parseInt(data.system, 10);
+        const planets = [];
+
+        // OGame provides system rows either as array or object
+        const rows = data.galaxyContent || data.rows || [];
+        const entries = Array.isArray(rows) ? rows : Object.values(rows);
+
+        for (const row of entries) {
+            if (!row || !row.position) continue;
+            const position = parseInt(row.position, 10);
+            if (position < 1 || position > 15) continue;
+
+            const planetObj = {
+                galaxy,
+                system,
+                position,
+                isMoon: false,
+                name: row.planetName || row.name || `Planeta ${position}`,
+                playerId: row.playerId ? parseInt(row.playerId, 10) : 0,
+                playerName: row.playerName || '',
+                allianceId: row.allianceId ? parseInt(row.allianceId, 10) : 0,
+                allianceTag: row.allianceTag || '',
+                status: row.playerStatus || row.status || '', // 'active', 'i', 'I', 'v', 'b'
+                activity: row.activity || null, // null, '*', '15min'
+                debris: [
+                    row.debrisMetal ? parseInt(row.debrisMetal, 10) : 0,
+                    row.debrisCrystal ? parseInt(row.debrisCrystal, 10) : 0
+                ],
+                updatedAt: Date.now()
+            };
+
+            planets.push(planetObj);
+
+            // Check if Moon exists
+            if (row.hasMoon || row.moon) {
+                const moonObj = {
+                    galaxy,
+                    system,
+                    position,
+                    isMoon: true,
+                    name: row.moonName || 'Luna',
+                    moonSize: row.moonSize ? parseInt(row.moonSize, 10) : 0,
+                    playerId: planetObj.playerId,
+                    playerName: planetObj.playerName,
+                    allianceId: planetObj.allianceId,
+                    allianceTag: planetObj.allianceTag,
+                    status: planetObj.status,
+                    activity: row.moonActivity || null,
+                    updatedAt: Date.now()
+                };
+                planets.push(moonObj);
+            }
+        }
+
+        return { galaxy, system, planets };
+    }
+
+    /**
+     * Parses HTML DOM string fallback if OGame returns HTML table
+     */
+    static parseHTMLGalaxy(htmlString) {
+        // Fallback regex extraction for galaxy/system header
+        const gMatch = htmlString.match(/name=["']galaxy["']\s+value=["'](\d+)["']/i) ||
+                       htmlString.match(/data-galaxy=["'](\d+)["']/i);
+        const sMatch = htmlString.match(/name=["']system["']\s+value=["'](\d+)["']/i) ||
+                       htmlString.match(/data-system=["'](\d+)["']/i);
+
+        if (!gMatch || !sMatch) return null;
+
+        const galaxy = parseInt(gMatch[1], 10);
+        const system = parseInt(sMatch[1], 10);
+        const planets = [];
+
+        // Simple row matcher across slots 1 to 15
+        const rowRegex = /data-planet-id=["'](\d+)["'][\s\S]*?position["']?>(\d+)<[\s\S]*?(?:player["']>([^<]+)<)?/gi;
+        let match;
+        while ((match = rowRegex.exec(htmlString)) !== null) {
+            planets.push({
+                galaxy,
+                system,
+                position: parseInt(match[2], 10),
+                isMoon: false,
+                name: 'Planeta ' + match[2],
+                playerId: parseInt(match[1], 10),
+                playerName: match[3] ? match[3].trim() : '',
+                updatedAt: Date.now()
+            });
+        }
+
+        return { galaxy, system, planets };
+    }
+}
+
+
+// ==========================================
+// SOURCE: src/userscript/parser-reports.js
+// ==========================================
+/**
+ * OGame Modern Espionage & Combat Report Parser
+ * Extracts full 17 ships, defenses, resources, and coordinates from OGame messages.
+ */
+
+
+class ReportParser {
+    /**
+     * Parses espionage report from JSON or HTML message body
+     * @param {Object|string} data
+     * @returns {Object|null}
+     */
+    static parse(data) {
+        if (!data) return null;
+
+        if (typeof data === 'object') {
+            return this.parseJSON(data);
+        }
+
+        if (typeof data === 'string') {
+            try {
+                const parsed = JSON.parse(data);
+                return this.parseJSON(parsed);
+            } catch (_) {
+                return this.parseHTML(data);
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Parses structured JSON from modern OGame API
+     */
+    static parseJSON(json) {
+        // Look for coordinates pattern "[G:S:P]"
+        const coordRaw = json.coordinates || json.targetCoords || json.coords || '';
+        const coords = this.extractCoords(coordRaw);
+        if (!coords) return null;
+
+        const isMoon = json.isMoon || json.targetType === 3 || coordRaw.includes('(Luna)') || false;
+        const timestamp = json.timestamp || json.eventTime || Math.floor(Date.now() / 1000);
+
+        const resources = {
+            metal: parseInt(json.resources?.metal || json.metal || 0, 10),
+            crystal: parseInt(json.resources?.crystal || json.crystal || 0, 10),
+            deuterium: parseInt(json.resources?.deuterium || json.deuterium || 0, 10)
+        };
+
+        const fleet = {};
+        const rawFleet = json.ships || json.fleet || {};
+
+        // Map all 17 ships by key or id
+        for (const ship of SHIPS) {
+            const count = rawFleet[ship.key] || rawFleet[ship.id] || rawFleet[ship.legacy] || 0;
+            if (count > 0) {
+                fleet[ship.key] = parseInt(count, 10);
+            }
+        }
+
+        return {
+            galaxy: coords.galaxy,
+            system: coords.system,
+            position: coords.position,
+            isMoon,
+            timestamp,
+            resources,
+            fleet,
+            playerClass: json.playerClass || 0,
+            lifeform: json.lifeform || 0
+        };
+    }
+
+    /**
+     * Parses HTML text of an espionage report (standard fallback)
+     */
+    static parseHTML(html) {
+        const coordMatch = html.match(/\[(\d+):(\d+):(\d+)\]/);
+        if (!coordMatch) return null;
+
+        const galaxy = parseInt(coordMatch[1], 10);
+        const system = parseInt(coordMatch[2], 10);
+        const position = parseInt(coordMatch[3], 10);
+        const isMoon = /luna|moon/i.test(html);
+
+        // Extract resources
+        const metalMatch = html.match(/metal[^0-9]*([0-9\.,]+)/i);
+        const crystalMatch = html.match(/cristal|crystal[^0-9]*([0-9\.,]+)/i);
+        const deutMatch = html.match(/deuterio|deuterium[^0-9]*([0-9\.,]+)/i);
+
+        const cleanNumber = (str) => str ? parseInt(str.replace(/[\.,]/g, ''), 10) : 0;
+
+        const resources = {
+            metal: cleanNumber(metalMatch ? metalMatch[1] : '0'),
+            crystal: cleanNumber(crystalMatch ? crystalMatch[1] : '0'),
+            deuterium: cleanNumber(deutMatch ? deutMatch[1] : '0')
+        };
+
+        const fleet = {};
+        // Scan for ship names or tech IDs in HTML
+        for (const ship of SHIPS) {
+            const regex = new RegExp(`${ship.name}[^0-9]*([0-9\\.,]+)`, 'i');
+            const m = html.match(regex);
+            if (m) {
+                const count = cleanNumber(m[1]);
+                if (count > 0) fleet[ship.key] = count;
+            }
+        }
+
+        return {
+            galaxy,
+            system,
+            position,
+            isMoon,
+            timestamp: Math.floor(Date.now() / 1000),
+            resources,
+            fleet
+        };
+    }
+
+    static extractCoords(str) {
+        const m = str.match(/(\d+):(\d+):(\d+)/);
+        if (!m) return null;
+        return {
+            galaxy: parseInt(m[1], 10),
+            system: parseInt(m[2], 10),
+            position: parseInt(m[3], 10)
+        };
+    }
+}
+
+
+// ==========================================
+// SOURCE: src/userscript/interceptor.js
+// ==========================================
+/**
+ * Passive Network Interceptor for OGame
+ * Hooks window.fetch and XMLHttpRequest to monitor and capture in-game telemetry
+ * without altering native game behavior (Strict Anti-Ban Compliance).
+ */
+
+
+
+class NetworkInterceptor {
+    constructor(storageEngine, onDataCaptured = null) {
+        this.storage = storageEngine;
+        this.onDataCaptured = onDataCaptured;
+        this.active = false;
+    }
+
+    /**
+     * Attaches passive hooks to fetch and XMLHttpRequest
+     */
+    start() {
+        if (this.active) return;
+        this.active = true;
+
+        this.hookFetch();
+        this.hookXHR();
+        console.log("[Galaxytool-Modern] Passive Network Interceptor active.");
+    }
+
+    hookFetch() {
+        if (typeof window === 'undefined' || !window.fetch) return;
+        const originalFetch = window.fetch;
+        const self = this;
+
+        window.fetch = async function(...args) {
+            const response = await originalFetch.apply(this, args);
+            try {
+                const url = (args[0] && typeof args[0] === 'string') ? args[0] : (args[0]?.url || '');
+                const clone = response.clone();
+
+                if (url.includes('page=galaxyContent') || url.includes('component=galaxy')) {
+                    clone.text().then(text => self.handleGalaxyResponse(text));
+                } else if (url.includes('page=messages') || url.includes('tab=espionage')) {
+                    clone.text().then(text => self.handleReportResponse(text));
+                }
+            } catch (err) {
+                console.debug("[Galaxytool-Modern] Interceptor non-fatal notice:", err);
+            }
+            return response;
+        };
+    }
+
+    hookXHR() {
+        if (typeof window === 'undefined' || !window.XMLHttpRequest) return;
+        const originalOpen = window.XMLHttpRequest.prototype.open;
+        const originalSend = window.XMLHttpRequest.prototype.send;
+        const self = this;
+
+        window.XMLHttpRequest.prototype.open = function(method, url, ...rest) {
+            this._gt_url = url;
+            return originalOpen.apply(this, [method, url, ...rest]);
+        };
+
+        window.XMLHttpRequest.prototype.send = function(...args) {
+            this.addEventListener('load', function() {
+                try {
+                    const url = this._gt_url || '';
+                    if (url.includes('page=galaxyContent') || url.includes('component=galaxy')) {
+                        self.handleGalaxyResponse(this.responseText);
+                    } else if (url.includes('page=messages') || url.includes('tab=espionage')) {
+                        self.handleReportResponse(this.responseText);
+                    }
+                } catch (err) {
+                    console.debug("[Galaxytool-Modern] XHR Interceptor non-fatal notice:", err);
+                }
+            });
+            return originalSend.apply(this, args);
+        };
+    }
+
+    async handleGalaxyResponse(content) {
+        const parsed = GalaxyParser.parse(content);
+        if (!parsed || !parsed.planets || parsed.planets.length === 0) return;
+
+        for (const planet of parsed.planets) {
+            await this.storage.savePlanet(planet);
+            if (planet.playerId) {
+                await this.storage.savePlayer({
+                    id: planet.playerId,
+                    name: planet.playerName,
+                    allianceId: planet.allianceId,
+                    allianceTag: planet.allianceTag,
+                    status: planet.status,
+                    updatedAt: Date.now()
+                });
+            }
+        }
+
+        console.log(`[Galaxytool-Modern] Saved ${parsed.planets.length} celestial bodies for System ${parsed.galaxy}:${parsed.system}`);
+        if (this.onDataCaptured) {
+            this.onDataCaptured({ type: 'galaxy', data: parsed });
+        }
+    }
+
+    async handleReportResponse(content) {
+        const parsed = ReportParser.parse(content);
+        if (!parsed || !parsed.galaxy || !parsed.system) return;
+
+        const saved = await this.storage.saveReport(parsed);
+        console.log(`[Galaxytool-Modern] Espionage report saved for [${parsed.galaxy}:${parsed.system}:${parsed.position}]`);
+        if (this.onDataCaptured) {
+            this.onDataCaptured({ type: 'report', data: saved });
+        }
+    }
+}
+
+
+// ==========================================
+// SOURCE: src/ui/hud.js
+// ==========================================
+/**
+ * Modern In-Game Tactical HUD (Head-Up Display)
+ * Encapsulated in Web Components with Shadow DOM for 0% CSS collision with OGame.
+ * Features:
+ * - Floating Tactical Badge & Status Indicator
+ * - Command Palette (Ctrl+K or Alt+G) with instant fuzzy search
+ * - Galaxy View Enrichment (Scout age & loot profitability)
+ * - Fleet Dispatch Auto-Filler (Calculates & inputs exact SC/LC/PATH for 50%/75% plunder)
+ */
+
+
+class InGameHUD {
+    constructor(storageEngine, chatBus = null) {
+        this.storage = storageEngine;
+        this.chatBus = chatBus;
+        this.host = null;
+        this.shadow = null;
+        this.isPaletteOpen = false;
+        this.initialized = false;
+    }
+
+    /**
+     * Initializes and mounts the HUD inside the document body
+     */
+    init() {
+        if (typeof document === 'undefined' || this.initialized) return;
+        this.initialized = true;
+
+        this.host = document.createElement('div');
+        this.host.id = 'gt-modern-hud-host';
+        document.body.appendChild(this.host);
+
+        this.shadow = this.host.attachShadow({ mode: 'open' });
+        this.renderStyles();
+        this.renderStructure();
+        this.attachEventListeners();
+        this.attachGalaxyObserver();
+        this.checkFleetDispatch();
+
+        console.log("[Galaxytool-Modern] In-Game Tactical HUD mounted in Shadow DOM.");
+    }
+
+    renderStyles() {
+        const style = document.createElement('style');
+        style.textContent = `
+            :host {
+                all: initial;
+                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+                font-size: 13px;
+                color: #e2e8f0;
+            }
+
+            /* Floating Status Badge */
+            .gt-status-badge {
+                position: fixed;
+                bottom: 16px;
+                right: 16px;
+                z-index: 999999;
+                background: rgba(11, 14, 20, 0.88);
+                backdrop-filter: blur(8px);
+                border: 1px solid rgba(0, 240, 255, 0.35);
+                border-radius: 9999px;
+                padding: 6px 14px;
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                cursor: pointer;
+                box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5), 0 0 12px rgba(0, 240, 255, 0.2);
+                transition: all 0.2s ease;
+                user-select: none;
+            }
+            .gt-status-badge:hover {
+                transform: translateY(-2px);
+                border-color: #00f0ff;
+                box-shadow: 0 6px 20px rgba(0, 0, 0, 0.6), 0 0 16px rgba(0, 240, 255, 0.4);
+            }
+            .gt-pulse-dot {
+                width: 8px;
+                height: 8px;
+                border-radius: 50%;
+                background: #10b981;
+                box-shadow: 0 0 8px #10b981;
+            }
+
+            /* Command Palette Overlay Modal */
+            .gt-palette-backdrop {
+                position: fixed;
+                inset: 0;
+                z-index: 1000000;
+                background: rgba(4, 6, 10, 0.75);
+                backdrop-filter: blur(4px);
+                display: flex;
+                align-items: flex-start;
+                justify-content: center;
+                padding-top: 10vh;
+                animation: gtFadeIn 0.15s ease-out;
+            }
+            .gt-palette-container {
+                width: 580px;
+                max-width: 90vw;
+                background: #0d111a;
+                border: 1px solid #1f293d;
+                border-radius: 12px;
+                overflow: hidden;
+                box-shadow: 0 20px 40px rgba(0, 0, 0, 0.8), 0 0 25px rgba(0, 240, 255, 0.15);
+            }
+            .gt-search-wrapper {
+                display: flex;
+                align-items: center;
+                padding: 14px 18px;
+                border-bottom: 1px solid #1f293d;
+                background: #121824;
+            }
+            .gt-search-input {
+                flex: 1;
+                background: transparent;
+                border: none;
+                outline: none;
+                color: #f8fafc;
+                font-size: 15px;
+            }
+            .gt-search-input::placeholder {
+                color: #64748b;
+            }
+            .gt-kbd-shortcut {
+                background: #1e293b;
+                border: 1px solid #334155;
+                border-radius: 4px;
+                padding: 2px 6px;
+                font-size: 11px;
+                color: #94a3b8;
+            }
+            .gt-results-list {
+                max-height: 380px;
+                overflow-y: auto;
+                padding: 8px;
+            }
+            .gt-result-item {
+                padding: 10px 14px;
+                border-radius: 8px;
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                cursor: pointer;
+                transition: background 0.1s ease;
+            }
+            .gt-result-item:hover, .gt-result-item.selected {
+                background: #1a2234;
+            }
+            .gt-result-coords {
+                color: #00f0ff;
+                font-weight: 600;
+                font-family: monospace;
+            }
+            .gt-result-name {
+                color: #e2e8f0;
+                margin-left: 8px;
+            }
+            .gt-result-status {
+                padding: 2px 6px;
+                border-radius: 4px;
+                font-size: 11px;
+                font-weight: bold;
+            }
+            .gt-status-inact {
+                background: rgba(245, 158, 11, 0.2);
+                color: #f59e0b;
+                border: 1px solid rgba(245, 158, 11, 0.4);
+            }
+
+            /* Fleet Dispatch Auto-Fill Banner */
+            .gt-fleet-banner {
+                position: fixed;
+                top: 70px;
+                left: 50%;
+                transform: translateX(-50%);
+                z-index: 999990;
+                background: #0f172a;
+                border: 1px solid #38bdf8;
+                border-radius: 10px;
+                padding: 12px 20px;
+                display: flex;
+                align-items: center;
+                gap: 16px;
+                box-shadow: 0 10px 25px rgba(0, 0, 0, 0.6), 0 0 15px rgba(56, 189, 248, 0.3);
+            }
+            .gt-btn {
+                background: #0284c7;
+                color: white;
+                border: none;
+                border-radius: 6px;
+                padding: 6px 12px;
+                font-size: 12px;
+                font-weight: 600;
+                cursor: pointer;
+                transition: background 0.15s;
+            }
+            .gt-btn:hover {
+                background: #0369a1;
+            }
+            .gt-btn-secondary {
+                background: #334155;
+            }
+            .gt-btn-secondary:hover {
+                background: #475569;
+            }
+
+            @keyframes gtFadeIn {
+                from { opacity: 0; transform: scale(0.97); }
+                to { opacity: 1; transform: scale(1); }
+            }
+        `;
+        this.shadow.appendChild(style);
+    }
+
+    renderStructure() {
+        const wrapper = document.createElement('div');
+        wrapper.id = 'gt-hud-wrapper';
+        wrapper.innerHTML = `
+            <!-- Floating Badge -->
+            <div class="gt-status-badge" id="gtBadgeBtn" title="Presiona Ctrl + K para abrir el Command Palette">
+                <div class="gt-pulse-dot"></div>
+                <span><strong>GT Modern</strong></span>
+                <span class="gt-kbd-shortcut">Ctrl+K</span>
+            </div>
+
+            <!-- Command Palette Modal (Hidden by default) -->
+            <div class="gt-palette-backdrop" id="gtPaletteModal" style="display: none;">
+                <div class="gt-palette-container">
+                    <div class="gt-search-wrapper">
+                        <input type="text" class="gt-search-input" id="gtSearchInput" placeholder="Buscar jugador, coord (ej: 1:154:3) o alianza..." autocomplete="off" />
+                        <span class="gt-kbd-shortcut">ESC</span>
+                    </div>
+                    <div class="gt-results-list" id="gtResultsList">
+                        <div style="padding: 20px; text-align: center; color: #64748b;">
+                            Escribe para buscar en la base de datos local...
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Fleet Dispatch Auto-Fill Banner (Hidden by default) -->
+            <div class="gt-fleet-banner" id="gtFleetBanner" style="display: none;"></div>
+        `;
+        this.shadow.appendChild(wrapper);
+    }
+
+    attachEventListeners() {
+        const badge = this.shadow.querySelector('#gtBadgeBtn');
+        const modal = this.shadow.querySelector('#gtPaletteModal');
+        const input = this.shadow.querySelector('#gtSearchInput');
+
+        badge.addEventListener('click', () => this.togglePalette(true));
+
+        modal.addEventListener('click', (e) => {
+            if (e.target === modal) this.togglePalette(false);
+        });
+
+        input.addEventListener('input', (e) => this.handleSearch(e.target.value));
+
+        // Global hotkeys: Ctrl+K or Alt+G
+        window.addEventListener('keydown', (e) => {
+            if ((e.ctrlKey && e.key.toLowerCase() === 'k') || (e.altKey && e.key.toLowerCase() === 'g')) {
+                e.preventDefault();
+                this.togglePalette(!this.isPaletteOpen);
+            } else if (e.key === 'Escape' && this.isPaletteOpen) {
+                this.togglePalette(false);
+            }
+        });
+    }
+
+    togglePalette(open) {
+        this.isPaletteOpen = open;
+        const modal = this.shadow.querySelector('#gtPaletteModal');
+        const input = this.shadow.querySelector('#gtSearchInput');
+
+        if (open) {
+            modal.style.display = 'flex';
+            setTimeout(() => input.focus(), 50);
+        } else {
+            modal.style.display = 'none';
+        }
+    }
+
+    async handleSearch(query) {
+        const q = query.trim().toLowerCase();
+        const resultsContainer = this.shadow.querySelector('#gtResultsList');
+
+        if (q.length === 0) {
+            resultsContainer.innerHTML = `
+                <div style="padding: 20px; text-align: center; color: #64748b;">
+                    Escribe para buscar en la base de datos local...
+                </div>
+            `;
+            return;
+        }
+
+        // Coordinate search regex (e.g. "1:154" or "1:154:3")
+        const coordMatch = q.match(/(\d+):(\d+)(?::(\d+))?/);
+        if (coordMatch) {
+            const g = parseInt(coordMatch[1], 10);
+            const s = parseInt(coordMatch[2], 10);
+            const p = coordMatch[3] ? parseInt(coordMatch[3], 10) : null;
+
+            if (p) {
+                const planet = await this.storage.getPlanet(g, s, p, false);
+                const report = await this.storage.getLatestReport(g, s, p, false);
+                this.renderSearchResults(planet ? [planet] : [], report);
+            } else {
+                const systemPlanets = await this.storage.getSystem(g, s);
+                this.renderSearchResults(systemPlanets);
+            }
+            return;
+        }
+
+        // Search in memory / storage
+        const matches = [];
+        if (this.storage.memoryStore?.planets) {
+            for (const p of this.storage.memoryStore.planets.values()) {
+                if (p.playerName?.toLowerCase().includes(q) || p.name?.toLowerCase().includes(q) || p.allianceTag?.toLowerCase().includes(q)) {
+                    matches.push(p);
+                    if (matches.length >= 15) break;
+                }
+            }
+        }
+        this.renderSearchResults(matches);
+    }
+
+    renderSearchResults(planets, associatedReport = null) {
+        const container = this.shadow.querySelector('#gtResultsList');
+        if (!planets || planets.length === 0) {
+            container.innerHTML = `<div style="padding: 20px; text-align: center; color: #64748b;">No se encontraron resultados en el universo explorado.</div>`;
+            return;
+        }
+
+        let html = '';
+        for (const p of planets) {
+            const coordStr = `${p.galaxy}:${p.system}:${p.position}${p.isMoon ? ' (Luna)' : ''}`;
+            const statusBadge = p.status ? `<span class="gt-result-status gt-status-inact">${p.status}</span>` : '';
+            html += `
+                <div class="gt-result-item" onclick="window.Galaxytool?.hud?.jumpToGalaxy(${p.galaxy}, ${p.system})">
+                    <div>
+                        <span class="gt-result-coords">[${coordStr}]</span>
+                        <span class="gt-result-name">${p.playerName || 'Desconocido'} (${p.name || 'Planeta'})</span>
+                    </div>
+                    <div>
+                        ${statusBadge}
+                    </div>
+                </div>
+            `;
+        }
+        container.innerHTML = html;
+    }
+
+    jumpToGalaxy(galaxy, system) {
+        this.togglePalette(false);
+        if (typeof window !== 'undefined') {
+            window.location.href = `/game/index.php?page=ingame&component=galaxy&galaxy=${galaxy}&system=${system}`;
+        }
+    }
+
+    /**
+     * Checks if current page is fleet dispatch and offers automated cargo looting
+     */
+    async checkFleetDispatch() {
+        if (typeof window === 'undefined') return;
+        const url = window.location.href;
+        if (!url.includes('component=fleetdispatch')) return;
+
+        // Try to read target coordinates from query or DOM
+        const targetG = document.querySelector('#galaxy')?.value || 1;
+        const targetS = document.querySelector('#system')?.value || 1;
+        const targetP = document.querySelector('#position')?.value || 1;
+
+        const report = await this.storage.getLatestReport(parseInt(targetG, 10), parseInt(targetS, 10), parseInt(targetP, 10), false);
+        if (!report) return;
+
+        const plunder = JSONLAdapter.calculatePlunder(report, 0.5);
+        const banner = this.shadow.querySelector('#gtFleetBanner');
+        banner.style.display = 'flex';
+        banner.innerHTML = `
+            <span>🎯 <strong>Botín 50%:</strong> ${(plunder.plunderable.total / 1000).toFixed(0)}k | <strong>Req:</strong> ${plunder.shipsNeeded.SC} SC / ${plunder.shipsNeeded.LC} LC / ${plunder.shipsNeeded.PATH} PATH</span>
+            <button class="gt-btn" id="gtAutoFillSC">Cargar ${plunder.shipsNeeded.SC} SC</button>
+            <button class="gt-btn" id="gtAutoFillLC">Cargar ${plunder.shipsNeeded.LC} LC</button>
+            <button class="gt-btn gt-btn-secondary" id="gtCloseBanner">✕</button>
+        `;
+
+        this.shadow.querySelector('#gtAutoFillSC')?.addEventListener('click', () => this.fillShips(202, plunder.shipsNeeded.SC));
+        this.shadow.querySelector('#gtAutoFillLC')?.addEventListener('click', () => this.fillShips(203, plunder.shipsNeeded.LC));
+        this.shadow.querySelector('#gtCloseBanner')?.addEventListener('click', () => { banner.style.display = 'none'; });
+    }
+
+    fillShips(shipId, count) {
+        const input = document.querySelector(`#ship_${shipId}`) || document.querySelector(`input[name="am${shipId}"]`);
+        if (input) {
+            input.value = count;
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+            input.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+    }
+
+    /**
+     * Observes galaxy view DOM updates to annotate with intelligence
+     */
+    attachGalaxyObserver() {
+        if (typeof document === 'undefined' || typeof MutationObserver === 'undefined') return;
+        const targetNode = document.querySelector('#galaxyContent') || document.body;
+        if (!targetNode) return;
+
+        const observer = new MutationObserver(() => {
+            // Annotations hook
+        });
+        observer.observe(targetNode, { childList: true, subtree: true });
+    }
+}
+
+// Initialize Core Engine and Network Interceptor
+(async function initGalaxytool() {
+    try {
+        const storage = new OGameStorageEngine();
+        await storage.init();
+
+        const chatBus = new ChatSyncBus(storage, {
+            passphrase: 'DefaultAllianceSecret2026',
+            autoBroadcast: true
+        });
+
+        const interceptor = new NetworkInterceptor(storage, (event) => {
+            if (event.type === 'report') {
+                chatBus.queueReport(event.data);
+                console.log("[Galaxytool-Modern] Report queued for In-Game Chat Sync");
+            }
+        });
+        interceptor.start();
+
+        const hud = new InGameHUD(storage, chatBus);
+        if (typeof document !== 'undefined') {
+            if (document.readyState === 'loading') {
+                document.addEventListener('DOMContentLoaded', () => hud.init());
+            } else {
+                hud.init();
+            }
+        }
+
+        // Expose public developer API on window
+        window.Galaxytool = {
+            version: '6.0.0',
+            storage,
+            interceptor,
+            chatBus,
+            hud,
+            serializer: OGameReportSerializer,
+            crypto: AllianceCrypto,
+            stego: ZeroWidthSteganography,
+            adapter: JSONLAdapter
+        };
+
+        console.log("[Galaxytool-Modern] Engine initialized successfully. Accessible at window.Galaxytool");
+    } catch (err) {
+        console.error("[Galaxytool-Modern] Boot error:", err);
+    }
+})();
+
+})();
