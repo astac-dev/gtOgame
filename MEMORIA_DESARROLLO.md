@@ -232,6 +232,18 @@ Conforme al requerimiento de reestructuración, se completó la investigación t
   * Suite [`tests/test_dashboard.mjs`](file:///c:/Users/Alex/Documents/2026%20B/galaxytool_5_1/galaxytool/tests/test_dashboard.mjs): **7 pruebas ejecutadas, 7 aprobadas, 0 fallidas (100% éxito)**.
   * **Balance Final Total del Proyecto:** **84 pruebas unitarias ejecutadas, 84 aprobadas (100% éxito)** a lo largo de las 6 fases del plan de trabajo.
 
+---
+
+## 📌 14. Regla 7: Operación Exclusiva de Galaxytool Modern (Sin Base de Datos SQL)
+
+* **Directriz del Usuario:** No abrir ni interactuar con el modelo monolítico viejo (Galaxytool v5.x con servidor MySQL/MariaDB). Toda prueba, visualización e interacción se enfoca exclusivamente en el modelo moderno sin base de datos SQL.
+* **Acciones Implementadas:**
+  1. **Incorporación de Regla 7 en [`REGLAS_DESARROLLO.md`](file:///c:/Users/Alex/Documents/2026%20B/galaxytool_5_1/galaxytool/REGLAS_DESARROLLO.md):** Formalización de la política de ejecución exclusiva de Galaxytool Modern (v6+), arquitectura local-first basada en `IndexedDB`, almacenamiento en memoria, persistencia en archivos planos JSON y userscripts en Tampermonkey sin servidor MySQL.
+  2. **Enrutamiento por Defecto en [`index.php`](file:///c:/Users/Alex/Documents/2026%20B/galaxytool_5_1/galaxytool/index.php):** Se añadió redirección automática en la raíz del servidor web (`/`) hacia `/dashboard/` (`Location: dashboard/`), impidiendo que el usuario acceda por accidente al viejo login con dependencia de MySQL.
+  3. **Punto de Entrada Oficial:**
+     * Dashboard: [http://localhost:8080/dashboard/](http://localhost:8080/dashboard/) (o directamente [http://localhost:8080/](http://localhost:8080/)).
+
+
 
 
 

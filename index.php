@@ -1,4 +1,10 @@
 <?php
+// Galaxytool Modern default entry: redirect to database-free Standalone Dashboard
+if (!isset($_GET['legacy'])) {
+    header("Location: dashboard/");
+    exit();
+}
+
 header("content-type: text/html; charset=utf-8");
 require "config/config.php";
 require "config/attributes.php";

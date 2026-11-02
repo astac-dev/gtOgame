@@ -76,3 +76,21 @@ Este documento define las políticas, estándares de ingeniería y directrices d
 2. El agente/desarrollador se centrará en la arquitectura técnica, robustez de datos, algoritmos de compresión, seguridad de red y pruebas de lógica sin asumir la aprobación visual en nombre del usuario.
 3. Ante cualquier entrega que involucre interfaz, el agente proveerá las instrucciones claras para que el usuario pueda visualizarla, probarla y dictaminar su retroalimentación o aprobación.
 
+---
+
+## 🚀 Regla 7: Ejecución Exclusiva del Nuevo Modelo Galaxytool Modern (Sin Base de Datos Centralizada)
+1. **Prohibición del Modelo Legado:** Queda estrictamente prohibido iniciar, abrir, desplegar o referenciar la interfaz o arquitectura del viejo Galaxytool monolítico (v5.x con servidor MySQL/MariaDB, `install.php`, o pantallas PHP legadas) salvo petición explícita y aislada de soporte histórico.
+2. **Arquitectura Activa Exclusiva (Local-First / Sin Base de Datos SQL):**
+   * El proyecto activo es **Galaxytool Modern (v6+)**, diseñado para operar sin necesidad de un servidor MySQL/MariaDB central.
+   * La persistencia de datos descansa en el cliente vía **IndexedDB** (`OGameGalaxytoolDB`), almacenamiento en memoria, y sincronización ligera por archivos planos JSON ([`data/planets.json`](file:///c:/Users/Alex/Documents/2026%20B/galaxytool_5_1/galaxytool/data/planets.json) y [`data/reports.json`](file:///c:/Users/Alex/Documents/2026%20B/galaxytool_5_1/galaxytool/data/reports.json)) a través del puente CORS [`api/sync.php`](file:///c:/Users/Alex/Documents/2026%20B/galaxytool_5_1/galaxytool/api/sync.php).
+3. **Punto de Entrada Obligatorio:**
+   * La interfaz principal de usuario es el **Dashboard Táctico Standalone PWA** localizado en:
+     `http://localhost:8080/dashboard/` (o `http://localhost:8080/dashboard/index.html`).
+   * La raíz del servidor web (`http://localhost:8080/`) redirige automáticamente al Dashboard Moderno.
+4. **Captura y Telemetría en Juego:**
+   * Toda captura en OGame se realiza mediante los userscripts modernos en Tampermonkey:
+     * Script Principal: [`dist/galaxytool-modern.user.js`](file:///c:/Users/Alex/Documents/2026%20B/galaxytool_5_1/galaxytool/dist/galaxytool-modern.user.js)
+     * Radar de Galaxia: [`dist/galExpl.js`](file:///c:/Users/Alex/Documents/2026%20B/galaxytool_5_1/galaxytool/dist/galExpl.js)
+   * Ambos se comunican en vivo con el Dashboard Moderno mediante el puente local sin base de datos SQL.
+
+
