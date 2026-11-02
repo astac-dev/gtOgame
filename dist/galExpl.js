@@ -160,6 +160,37 @@
         return name || '';
     }
 
+    function extractCleanPlanetName(row, pos) {
+        const planetCell = row.querySelector('.cellPlanet, .cellPlanetName');
+        if (!planetCell) return 'Planeta ' + pos;
+
+        const clone = planetCell.cloneNode(true);
+        clone.querySelectorAll('.galaxyTooltip, .tooltip, [class*="tooltip"], ul, ol, pre, .agr_menu, [class*="agr"], .actions, .action, [class*="action"], [onclick*="sendShips"], a[href*="fleet"], .microplanet, .activity, .minuteCounter').forEach(el => el.remove());
+
+        let text = clone.textContent.trim();
+
+        // Extraer formato [g:s:p] Nombre si está presente
+        const bracketMatch = text.match(/(\[\d+:\d+:\d+\]\s*[^\r\n]+)/);
+        if (bracketMatch) {
+            text = bracketMatch[1];
+        } else {
+            const lines = text.split(/[\r\n]+/).map(l => l.trim()).filter(Boolean);
+            for (const line of lines) {
+                if (!/^\d+$/.test(line) && !/^actividad/i.test(line) && !/^(?:transporte|espionaje|atacar|mostrar|jugador|vigilar)/i.test(line)) {
+                    text = line;
+                    break;
+                }
+            }
+        }
+
+        const junkRegex = /\s*(?:Transporte|Mantener\s+posici[oó]n|Espionaje|Informe\s+de\s+espionaje|Atacar|Mostrar\s+la\s+informaci[oó]n|Jugador\s+en\s+modo|Actividad:|Vigilar|Granja|Objetivo|Ataque|Desplegar|Recolectar)[\s\S]*/i;
+        text = text.replace(junkRegex, '').trim();
+        text = text.replace(/^\d+\s+/, '').trim();
+
+        return text || ('Planeta ' + pos);
+    }
+
+
     // --- MOTOR DE ESPIONAJE DIRECTO Y CLIC ORGÁNICO ---
     function executeEspionage(target) {
         console.log(`[Radar Galaxia] Ejecutando orden de espionaje a ${target.label}...`);
@@ -1048,7 +1079,7 @@
             const rawAlly = row.querySelector('.cellAlliance')?.textContent.trim().replace(/^\[|\]$/g, '') || '';
             const allyTag = rawAlly ? (rawAlly.match(/^([^\s\d\/]+)/)?.[1] || rawAlly.split(/\s+/)[0]) : '';
             const allyName = rawAlly;
-            const planetName = row.querySelector('.cellPlanet .planetName, .cellPlanet')?.textContent.trim() || `Planeta ${pos}`;
+            const planetName = extractCleanPlanetName(row, pos);
             const playerId = extractPlayerId(row);
             const status = extractPlayerStatus(row);
 

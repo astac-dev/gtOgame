@@ -121,14 +121,16 @@ class DashboardApp {
                         }
                         for (const p of data.planets) {
                             const coordKey = p.coordKey || `${p.galaxy}:${p.system}:${p.position}:${p.isMoon ? 1 : 0}`;
-                            store.put({ ...p, coordKey });
+                            const planetName = this.cleanPlanetName(p.planetName, p.galaxy, p.system, p.position);
+                            store.put({ ...p, planetName, coordKey });
                         }
                     };
                 } else {
                     this.memoryStore.planets.clear();
                     for (const p of data.planets) {
                         const coordKey = p.coordKey || `${p.galaxy}:${p.system}:${p.position}:${p.isMoon ? 1 : 0}`;
-                        this.memoryStore.planets.set(coordKey, { ...p, coordKey });
+                        const planetName = this.cleanPlanetName(p.planetName, p.galaxy, p.system, p.position);
+                        this.memoryStore.planets.set(coordKey, { ...p, planetName, coordKey });
                     }
                 }
             }
@@ -432,6 +434,32 @@ class DashboardApp {
     // 3. GALAXY SYSTEM EXPLORER
     // ==========================================
 
+    cleanPlanetName(name, galaxy, system, position) {
+        if (!name) return `Planeta ${position}`;
+        let s = String(name).trim();
+
+        // Extraer formato [g:s:p] Nombre si está presente
+        const bracketMatch = s.match(/(\[\d+:\d+:\d+\]\s*[^\r\n]+)/);
+        if (bracketMatch) {
+            s = bracketMatch[1];
+        } else {
+            const lines = s.split(/[\r\n]+/).map(l => l.trim()).filter(Boolean);
+            for (const line of lines) {
+                if (!/^\d+$/.test(line) && !/^actividad/i.test(line) && !/^(?:transporte|espionaje|atacar|mostrar|jugador|vigilar)/i.test(line)) {
+                    s = line;
+                    break;
+                }
+            }
+        }
+
+        // Eliminar sufijos y textos de botones de acción / AGR
+        const junkRegex = /\s*(?:Transporte|Mantener\s+posici[oó]n|Espionaje|Informe\s+de\s+espionaje|Atacar|Mostrar\s+la\s+informaci[oó]n|Jugador\s+en\s+modo|Actividad:|Vigilar|Granja|Objetivo|Ataque|Desplegar|Recolectar)[\s\S]*/i;
+        s = s.replace(junkRegex, '').trim();
+        s = s.replace(/^\d+\s+/, '').trim();
+
+        return s || `Planeta ${position}`;
+    }
+
     formatActivityDetail(activity, updatedAt) {
         if (!activity) return null;
         const capturedTime = activity.capturedAt || updatedAt || Date.now();
@@ -512,7 +540,8 @@ class DashboardApp {
             }
 
             const mainBody = planet || moon;
-            const pName = planet ? (planet.planetName || `Planeta ${pos}`) : (moon.planetName || `Luna ${pos}`);
+            const rawPName = planet ? (planet.planetName || `Planeta ${pos}`) : (moon.planetName || `Luna ${pos}`);
+            const pName = this.cleanPlanetName(rawPName, g, s, pos);
             const playerName = mainBody.playerName || 'Desconocido';
             
             // Clean alliance siglas only (strip brackets and extra tokens)

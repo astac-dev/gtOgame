@@ -21,6 +21,26 @@ if (!is_dir($dataDir)) {
 $planetsCacheFile = $dataDir . '/planets.json';
 $reportsCacheFile = $dataDir . '/reports.json';
 
+function cleanPlanetName($name, $pos) {
+    if (empty($name)) return "Planeta $pos";
+    $s = trim($name);
+    if (preg_match('/(\[\d+:\d+:\d+\]\s*[^\r\n]+)/', $s, $m)) {
+        $s = $m[1];
+    } else {
+        $lines = preg_split('/[\r\n]+/', $s);
+        foreach ($lines as $line) {
+            $t = trim($line);
+            if (!empty($t) && !preg_match('/^\d+$/', $t) && !preg_match('/^actividad/i', $t) && !preg_match('/^(?:transporte|espionaje|atacar|mostrar|jugador|vigilar)/i', $t)) {
+                $s = $t;
+                break;
+            }
+        }
+    }
+    $s = preg_replace('/\s*(?:Transporte|Mantener\s+posici[oó]n|Espionaje|Informe\s+de\s+espionaje|Atacar|Mostrar\s+la\s+informaci[oó]n|Jugador\s+en\s+modo|Actividad:|Vigilar|Granja|Objetivo|Ataque|Desplegar|Recolectar)[\s\S]*/i', '', $s);
+    $s = preg_replace('/^\d+\s+/', '', trim($s));
+    return !empty($s) ? $s : "Planeta $pos";
+}
+
 // Load existing memory/cache
 $planets = file_exists($planetsCacheFile) ? json_decode(file_get_contents($planetsCacheFile), true) : [];
 $reports = file_exists($reportsCacheFile) ? json_decode(file_get_contents($reportsCacheFile), true) : [];
@@ -61,6 +81,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $key = $p['galaxy'] . ':' . $p['system'] . ':' . $p['position'] . ':' . (!empty($p['isMoon']) ? 1 : 0);
                 $p['coordKey'] = $key;
                 $p['updatedAt'] = !empty($p['updatedAt']) ? $p['updatedAt'] : round(microtime(true) * 1000);
+                if (empty($p['isMoon'])) {
+                    $p['planetName'] = cleanPlanetName($p['planetName'] ?? '', (int)$p['position']);
+                    $p['name'] = $p['planetName'];
+                }
                 $planets[$key] = $p;
                 $savedCount++;
             }
@@ -77,6 +101,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $key = $p['galaxy'] . ':' . $p['system'] . ':' . $p['position'] . ':' . (!empty($p['isMoon']) ? 1 : 0);
             $p['coordKey'] = $key;
             $p['updatedAt'] = !empty($p['updatedAt']) ? $p['updatedAt'] : round(microtime(true) * 1000);
+            if (empty($p['isMoon'])) {
+                $p['planetName'] = cleanPlanetName($p['planetName'] ?? '', (int)$p['position']);
+                $p['name'] = $p['planetName'];
+            }
             $planets[$key] = $p;
             $savedCount++;
         }
