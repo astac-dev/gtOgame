@@ -142,12 +142,20 @@
     }
 
     function extractCleanPlayerName(row) {
-        const playerEl = row.querySelector('.cellPlayerName .playerName') || row.querySelector('.cellPlayerName');
-        if (!playerEl) return 'Inactivo';
-        const clone = playerEl.cloneNode(true);
-        clone.querySelectorAll('.galaxyTooltip, div, ul, pre, selected-language-icon').forEach(n => n.remove());
-        const name = clone.textContent.trim();
-        return name || 'Inactivo';
+        const playerCell = row.querySelector('.cellPlayerName, .cellPlayer');
+        if (!playerCell) return '';
+        const clone = playerCell.cloneNode(true);
+        clone.querySelectorAll('.galaxyTooltip, .rank, .playerRank, .honorRank, .undermark, ul, pre, selected-language-icon').forEach(n => n.remove());
+        const playerLink = clone.querySelector('a, [class*="status_abbr_"], .playerName');
+        let name = '';
+        if (playerLink) {
+            name = playerLink.textContent.trim();
+        } else {
+            name = clone.textContent.trim();
+        }
+        name = name.replace(/\s*\((?:ph|hp|i|I|v|b|s|n|bandit)\)\s*/gi, ' ').trim();
+        name = name.replace(/\s+\d+$/, '').trim();
+        return name || '';
     }
 
     // --- MOTOR DE ESPIONAJE DIRECTO Y CLIC ORGÁNICO ---
@@ -832,9 +840,14 @@
     function extractPlayerId(row) {
         const attr = row.getAttribute('data-player-id') || row.querySelector('[data-player-id]')?.getAttribute('data-player-id');
         if (attr) return parseInt(attr, 10);
-        const link = row.querySelector('.cellPlayerName a')?.href || '';
-        const match = link.match(/[?&](?:to|playerId|player)=(\d+)/i);
-        return match ? parseInt(match[1], 10) : 0;
+        const link = row.querySelector('.cellPlayerName a, a[rel^="#player"], a[href*="playerId="], a[href*="to="]');
+        if (link) {
+            const href = link.getAttribute('href') || '';
+            const rel = link.getAttribute('rel') || '';
+            const match = href.match(/[?&](?:to|playerId|player)=(\d+)/i) || rel.match(/#player(\d+)/i);
+            if (match) return parseInt(match[1], 10);
+        }
+        return 0;
     }
 
     function extractPlayerStatus(row) {

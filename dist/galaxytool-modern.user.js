@@ -1516,36 +1516,55 @@ class GalaxyParser {
 
     static extractRowFromElement(row, galaxy, system, pos) {
         // Player Name
-        const playerEl = row.querySelector('.cellPlayerName .playerName, .cellPlayerName, .cellPlayer');
+        const playerCell = row.querySelector('.cellPlayerName, .cellPlayer');
         let playerName = '';
-        if (playerEl) {
-            const clone = playerEl.cloneNode(true);
-            clone.querySelectorAll('.galaxyTooltip, div, ul, pre').forEach(n => n.remove());
-            playerName = clone.textContent.trim();
+        if (playerCell) {
+            const clone = playerCell.cloneNode(true);
+            clone.querySelectorAll('.galaxyTooltip, .rank, .playerRank, .honorRank, .undermark, ul, pre').forEach(n => n.remove());
+            const playerLink = clone.querySelector('a, [class*="status_abbr_"], .playerName');
+            if (playerLink) {
+                playerName = playerLink.textContent.trim();
+            } else {
+                playerName = clone.textContent.trim();
+            }
+            playerName = playerName.replace(/\s*\((?:ph|hp|i|I|v|b|s|n|bandit)\)\s*/gi, ' ').trim();
+            playerName = playerName.replace(/\s+\d+$/, '').trim();
         }
 
         // Planet Name
-        const planetEl = row.querySelector('.cellPlanet .planetName, .cellPlanetName .planetName, .cellPlanet, .cellPlanetName');
+        const planetCell = row.querySelector('.cellPlanet, .cellPlanetName');
         let planetName = `Planeta ${pos}`;
-        if (planetEl) {
-            const clone = planetEl.cloneNode(true);
-            clone.querySelectorAll('.galaxyTooltip, div').forEach(n => n.remove());
-            const text = clone.textContent.trim();
+        if (planetCell) {
+            const clone = planetCell.cloneNode(true);
+            clone.querySelectorAll('.galaxyTooltip, ul, pre').forEach(n => n.remove());
+            const nameEl = clone.querySelector('.planetName, a, span') || clone;
+            const text = nameEl.textContent.trim();
             if (text) planetName = text;
         }
 
         // Player ID
         let playerId = 0;
         const pAttr = row.getAttribute('data-player-id') || row.querySelector('[data-player-id]')?.getAttribute('data-player-id');
-        if (pAttr) playerId = parseInt(pAttr, 10);
+        if (pAttr) {
+            playerId = parseInt(pAttr, 10);
+        } else {
+            const pLink = row.querySelector('.cellPlayerName a, a[rel^="#player"], a[href*="playerId="], a[href*="to="]');
+            if (pLink) {
+                const href = pLink.getAttribute('href') || '';
+                const rel = pLink.getAttribute('rel') || '';
+                const m = href.match(/[?&](?:to|playerId|player)=(\d+)/i) || rel.match(/#player(\d+)/i);
+                if (m) playerId = parseInt(m[1], 10);
+            }
+        }
 
         // Alliance Tag
         const allyEl = row.querySelector('.cellAlliance .allianceTag, .cellAlliance, .cellAllianceName');
         let allianceTag = '';
         if (allyEl) {
             const clone = allyEl.cloneNode(true);
-            clone.querySelectorAll('.galaxyTooltip, div').forEach(n => n.remove());
-            allianceTag = clone.textContent.trim().replace(/^\[|\]$/g, '');
+            clone.querySelectorAll('.galaxyTooltip, .rank, .members, ul, pre').forEach(n => n.remove());
+            const tagEl = clone.querySelector('a, .allianceTag') || clone;
+            allianceTag = tagEl.textContent.trim().replace(/^\[|\]$/g, '');
         }
 
         // Player Status: capture all combinations (inactive, long inactive, vacation, banned, bandit, hp)

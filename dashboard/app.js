@@ -439,14 +439,23 @@ class DashboardApp {
         const s = this.currentSystem;
         const planets = await this.getSystemPlanets(g, s);
         const planetsByPos = new Map();
-        planets.forEach(p => planetsByPos.set(p.position, p));
+        const moonsByPos = new Map();
+
+        planets.forEach(p => {
+            if (p.isMoon) {
+                moonsByPos.set(p.position, p);
+            } else {
+                planetsByPos.set(p.position, p);
+            }
+        });
 
         let html = '';
         for (let pos = 1; pos <= 15; pos++) {
             const planet = planetsByPos.get(pos);
+            const moon = moonsByPos.get(pos);
             const coordStr = `${g}:${s}:${pos}`;
 
-            if (!planet) {
+            if (!planet && !moon) {
                 // Empty slot
                 html += `
                 <tr class="border-b border-slate-800/60 hover:bg-slate-900/40 transition">
@@ -465,13 +474,17 @@ class DashboardApp {
                 continue;
             }
 
-            const pName = planet.planetName || 'Planeta';
-            const playerName = planet.playerName || 'Desconocido';
-            const ally = planet.allianceTag ? `[${planet.allianceTag}]` : '';
-            const statusBadge = this.formatStatusBadge(planet.playerStatus);
-            const moonIcon = planet.hasMoon ? `<span class="inline-flex items-center text-amber-300 font-mono text-xs" title="Luna presente">🌕 ${planet.moonSize ? planet.moonSize + 'km' : 'Luna'}</span>` : `<span class="text-slate-600">-</span>`;
-            const debris = planet.debris ? `<span class="text-xs font-mono text-emerald-400">M:${this.formatNumber(planet.debris.metal || 0)} C:${this.formatNumber(planet.debris.crystal || 0)}</span>` : `<span class="text-slate-600">-</span>`;
-            const ageStr = this.formatTimeAgo(planet.updatedAt);
+            const mainBody = planet || moon;
+            const pName = planet ? (planet.planetName || `Planeta ${pos}`) : (moon.planetName || `Luna ${pos}`);
+            const playerName = mainBody.playerName || 'Desconocido';
+            const ally = mainBody.allianceTag ? `[${mainBody.allianceTag}]` : '';
+            const statusBadge = this.formatStatusBadge(mainBody.playerStatus);
+            const hasMoon = !!moon || !!(planet && planet.hasMoon);
+            const moonSize = moon ? moon.moonSize : (planet ? planet.moonSize : 0);
+            const moonIcon = hasMoon ? `<span class="inline-flex items-center text-amber-300 font-mono text-xs" title="Luna presente">🌕 ${moonSize ? moonSize + 'km' : 'Luna'}</span>` : `<span class="text-slate-600">-</span>`;
+            const debris = (planet && planet.debris) ? planet.debris : (moon && moon.debris ? moon.debris : null);
+            const debrisHtml = debris ? `<span class="text-xs font-mono text-emerald-400">M:${this.formatNumber(debris.metal || 0)} C:${this.formatNumber(debris.crystal || 0)}</span>` : `<span class="text-slate-600">-</span>`;
+            const ageStr = this.formatTimeAgo(mainBody.updatedAt);
 
             html += `
             <tr class="border-b border-slate-800/80 hover:bg-slate-800/50 transition">
@@ -481,7 +494,7 @@ class DashboardApp {
                 </td>
                 <td class="py-2.5 px-3 font-mono text-xs text-cyan-300">${coordStr}</td>
                 <td class="py-2.5 px-3">${moonIcon}</td>
-                <td class="py-2.5 px-3">${debris}</td>
+                <td class="py-2.5 px-3">${debrisHtml}</td>
                 <td class="py-2.5 px-3 font-medium text-slate-100">
                     ${this.escapeHTML(playerName)}
                     ${ally ? `<span class="text-xs font-mono text-indigo-400 ml-1">${this.escapeHTML(ally)}</span>` : ''}
