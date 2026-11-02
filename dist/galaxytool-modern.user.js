@@ -1557,14 +1557,35 @@ class GalaxyParser {
             }
         }
 
-        // Alliance Tag
+        // Alliance Tag (Siglas only) and Full Alliance Name
         const allyEl = row.querySelector('.cellAlliance .allianceTag, .cellAlliance, .cellAllianceName');
         let allianceTag = '';
+        let allianceName = '';
         if (allyEl) {
             const clone = allyEl.cloneNode(true);
-            clone.querySelectorAll('.galaxyTooltip, .rank, .members, ul, pre').forEach(n => n.remove());
+            clone.querySelectorAll('.galaxyTooltip, ul, pre').forEach(n => n.remove());
+            allianceName = clone.textContent.trim().replace(/^\[|\]$/g, '');
             const tagEl = clone.querySelector('a, .allianceTag') || clone;
-            allianceTag = tagEl.textContent.trim().replace(/^\[|\]$/g, '');
+            let rawTag = tagEl.textContent.trim().replace(/^\[|\]$/g, '');
+            allianceTag = rawTag.split(/\s+/)[0];
+        }
+
+        // Activity / Minutero
+        let activity = null;
+        const actEl = row.querySelector('.cellPlanet .activity, .cellPlanetName .activity, .cellPlanet .minuteCounter, .cellPlanetName .minuteCounter');
+        if (actEl) {
+            const actText = actEl.textContent.trim();
+            if (actText === '*' || actText.includes('*')) {
+                activity = { type: 'star', minutes: 15, label: '*', capturedAt: Date.now() };
+            } else {
+                const m = actText.match(/(\d+)/);
+                if (m) {
+                    const mins = parseInt(m[1], 10);
+                    if (mins >= 15 && mins <= 59) {
+                        activity = { type: 'minutes', minutes: mins, label: `${mins} min`, capturedAt: Date.now() };
+                    }
+                }
+            }
         }
 
         // Player Status: capture all combinations (inactive, long inactive, vacation, banned, bandit, hp)
@@ -1637,6 +1658,9 @@ class GalaxyParser {
             player_id: playerId,
             allianceTag,
             alliance_tag: allianceTag,
+            allianceName,
+            alliance_name: allianceName,
+            activity,
             allianceId: 0,
             status,
             playerStatus: status,
@@ -1665,6 +1689,9 @@ class GalaxyParser {
             player_id: playerId,
             allianceTag,
             alliance_tag: allianceTag,
+            allianceName,
+            alliance_name: allianceName,
+            activity,
             allianceId: 0,
             status,
             playerStatus: status,

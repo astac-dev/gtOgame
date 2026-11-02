@@ -43,6 +43,7 @@ class DashboardApp {
         await this.initDB();
         this.setupNavigation();
         this.setupEventListeners();
+        this.setupHoverPopovers();
         this.registerServiceWorker();
         await this.loadInitialView();
         this.startLiveSync();
@@ -431,6 +432,43 @@ class DashboardApp {
     // 3. GALAXY SYSTEM EXPLORER
     // ==========================================
 
+    formatActivityDetail(activity, updatedAt) {
+        if (!activity) return null;
+        const capturedTime = activity.capturedAt || updatedAt || Date.now();
+        const elapsedMinutes = Math.floor((Date.now() - capturedTime) / 60000);
+        const currentMinutes = (activity.minutes || 0) + elapsedMinutes;
+
+        // "Asi hasta que la actividad supera los 59 min y desaparece ese dato."
+        if (currentMinutes > 59) return null;
+
+        // Hora del evento original de actividad
+        const eventTimestamp = capturedTime - ((activity.minutes || 0) * 60000);
+        const eventDate = new Date(eventTimestamp);
+        const hours = String(eventDate.getHours()).padStart(2, '0');
+        const mins = String(eventDate.getMinutes()).padStart(2, '0');
+
+        // Formato exacto de huso horario local (ej. -6:00 hrs GMT)
+        const offsetMin = -eventDate.getTimezoneOffset();
+        const sign = offsetMin >= 0 ? '+' : '-';
+        const absMin = Math.abs(offsetMin);
+        const tzHours = Math.floor(absMin / 60);
+        const tzMins = absMin % 60;
+        const tzFormatted = `${sign}${tzHours}:${String(tzMins).padStart(2, '0')} hrs GMT`;
+
+        let timeLabel = '';
+        if (activity.type === 'recent' || activity.minutes === 0) {
+            timeLabel = currentMinutes === 0 ? '* (<15 min)' : `${currentMinutes} min`;
+        } else {
+            timeLabel = `${currentMinutes} min`;
+        }
+
+        return {
+            currentMinutes,
+            badge: (activity.type === 'recent' && currentMinutes === 0) ? '*' : `${currentMinutes}m`,
+            fullText: `U.Act. ${timeLabel} (${hours}:${mins} hrs ${tzFormatted})`
+        };
+    }
+
     async renderGalaxySystem() {
         const container = document.getElementById('galaxy-slots-table');
         if (!container) return;
@@ -456,7 +494,7 @@ class DashboardApp {
             const coordStr = `${g}:${s}:${pos}`;
 
             if (!planet && !moon) {
-                // Empty slot
+                // Empty slot (8 columns matching headers)
                 html += `
                 <tr class="border-b border-slate-800/60 hover:bg-slate-900/40 transition">
                     <td class="py-2.5 px-3 font-mono text-cyan-400 font-bold">${pos}</td>
@@ -466,7 +504,6 @@ class DashboardApp {
                     <td class="py-2.5 px-3 text-slate-600">-</td>
                     <td class="py-2.5 px-3 text-slate-600">-</td>
                     <td class="py-2.5 px-3 text-slate-600">-</td>
-                    <td class="py-2.5 px-3 text-slate-600 text-xs">-</td>
                     <td class="py-2.5 px-3 text-right">
                         <button onclick="app.copyToClipboard('${coordStr}')" class="px-2 py-1 text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 rounded transition" title="Copiar Coordenadas">📋</button>
                     </td>
@@ -477,30 +514,52 @@ class DashboardApp {
             const mainBody = planet || moon;
             const pName = planet ? (planet.planetName || `Planeta ${pos}`) : (moon.planetName || `Luna ${pos}`);
             const playerName = mainBody.playerName || 'Desconocido';
-            const ally = mainBody.allianceTag ? `[${mainBody.allianceTag}]` : '';
+            
+            // Clean alliance siglas only (strip brackets and extra tokens)
+            const rawTag = (mainBody.allianceTag || '').replace(/[\[\]]/g, '').trim();
+            const cleanTag = rawTag.split(/\s+/)[0] || '';
+            const fullAllyName = mainBody.allianceName || cleanTag;
+
             const statusBadge = this.formatStatusBadge(mainBody.playerStatus);
             const hasMoon = !!moon || !!(planet && planet.hasMoon);
             const moonSize = moon ? moon.moonSize : (planet ? planet.moonSize : 0);
             const moonIcon = hasMoon ? `<span class="inline-flex items-center text-amber-300 font-mono text-xs" title="Luna presente">🌕 ${moonSize ? moonSize + 'km' : 'Luna'}</span>` : `<span class="text-slate-600">-</span>`;
             const debris = (planet && planet.debris) ? planet.debris : (moon && moon.debris ? moon.debris : null);
             const debrisHtml = debris ? `<span class="text-xs font-mono text-emerald-400">M:${this.formatNumber(debris.metal || 0)} C:${this.formatNumber(debris.crystal || 0)}</span>` : `<span class="text-slate-600">-</span>`;
-            const ageStr = this.formatTimeAgo(mainBody.updatedAt);
+
+            // Calculate dynamic activity & expiration (>59m)
+            const actDetail = this.formatActivityDetail(mainBody.activity, mainBody.updatedAt);
 
             html += `
             <tr class="border-b border-slate-800/80 hover:bg-slate-800/50 transition">
                 <td class="py-2.5 px-3 font-mono text-cyan-400 font-bold">${pos}</td>
                 <td class="py-2.5 px-3 font-medium text-slate-200">
-                    <span class="inline-block w-2 h-2 rounded-full bg-cyan-400 mr-2"></span>${this.escapeHTML(pName)}
+                    <div class="gt-popover-target inline-flex items-center cursor-pointer group"
+                         data-popover-type="planet"
+                         data-coord="${coordStr}"
+                         data-planet-name="${this.escapeHTML(pName)}"
+                         data-activity="${this.escapeHTML(actDetail ? actDetail.fullText : '')}"
+                         data-status="${this.escapeHTML(mainBody.playerStatus || '')}">
+                        <span class="inline-block w-2 h-2 rounded-full bg-cyan-400 mr-2 group-hover:ring-2 ring-cyan-400/50"></span>
+                        <span class="hover:text-cyan-300 transition">${this.escapeHTML(pName)}</span>
+                        ${actDetail ? `<span class="ml-1.5 px-1.5 py-0.5 rounded text-[11px] font-mono bg-amber-500/20 text-amber-300 border border-amber-500/30">⏱️ ${actDetail.badge}</span>` : ''}
+                    </div>
                 </td>
                 <td class="py-2.5 px-3 font-mono text-xs text-cyan-300">${coordStr}</td>
                 <td class="py-2.5 px-3">${moonIcon}</td>
                 <td class="py-2.5 px-3">${debrisHtml}</td>
                 <td class="py-2.5 px-3 font-medium text-slate-100">
-                    ${this.escapeHTML(playerName)}
-                    ${ally ? `<span class="text-xs font-mono text-indigo-400 ml-1">${this.escapeHTML(ally)}</span>` : ''}
+                    <span>${this.escapeHTML(playerName)}</span>
+                    ${cleanTag ? `
+                        <span class="gt-popover-target inline-block text-xs font-mono text-indigo-400 hover:text-indigo-300 ml-1 cursor-pointer font-bold"
+                              data-popover-type="alliance"
+                              data-tag="${this.escapeHTML(cleanTag)}"
+                              data-ally-name="${this.escapeHTML(fullAllyName)}"
+                              data-player-name="${this.escapeHTML(playerName)}">
+                            [${this.escapeHTML(cleanTag)}]
+                        </span>` : ''}
                 </td>
                 <td class="py-2.5 px-3">${statusBadge}</td>
-                <td class="py-2.5 px-3 font-mono text-xs text-slate-400">${ageStr}</td>
                 <td class="py-2.5 px-3 text-right space-x-1">
                     <button onclick="app.showReportFor('${coordStr}')" class="px-2 py-1 text-xs bg-cyan-900/50 hover:bg-cyan-800 text-cyan-300 border border-cyan-700/50 rounded transition" title="Ver Inteligencia">📡 Reporte</button>
                     <button onclick="app.openCargoCalcForCoord('${coordStr}')" class="px-2 py-1 text-xs bg-emerald-900/50 hover:bg-emerald-800 text-emerald-300 border border-emerald-700/50 rounded transition" title="Calcular Granjeo">🚀 Granjeo</button>
@@ -996,6 +1055,184 @@ class DashboardApp {
         if (navigator.clipboard) {
             navigator.clipboard.writeText(text);
         }
+    }
+
+    filterByAlliance(tag) {
+        this.switchTab('targets');
+        alert(`Filtrando objetivos de la alianza [${tag}].`);
+    }
+
+    openFleetDispatch(coordStr) {
+        this.copyToClipboard(coordStr);
+        alert(`Coordenadas ${coordStr} copiadas al portapapeles para envío de flota.`);
+    }
+
+    setupHoverPopovers() {
+        if (typeof document === 'undefined') return;
+
+        let popoverEl = document.getElementById('gt-hover-popover');
+        if (!popoverEl) {
+            popoverEl = document.createElement('div');
+            popoverEl.id = 'gt-hover-popover';
+            popoverEl.className = 'fixed z-50 hidden bg-space-950/95 border border-cyan-500/40 rounded-xl p-3 shadow-2xl backdrop-blur-md text-xs text-slate-200 transition-opacity duration-150 max-w-xs pointer-events-auto';
+            document.body.appendChild(popoverEl);
+        }
+
+        let hoverTimer = null;
+        let closeTimer = null;
+        let activeTarget = null;
+
+        const hidePopover = () => {
+            if (hoverTimer) {
+                clearTimeout(hoverTimer);
+                hoverTimer = null;
+            }
+            if (closeTimer) {
+                clearTimeout(closeTimer);
+                closeTimer = null;
+            }
+            popoverEl.classList.add('hidden');
+            activeTarget = null;
+        };
+
+        const showPopoverFor = (target) => {
+            const type = target.getAttribute('data-popover-type');
+            if (!type) return;
+
+            let contentHtml = '';
+            if (type === 'planet') {
+                const name = target.getAttribute('data-planet-name') || 'Planeta';
+                const coord = target.getAttribute('data-coord') || '';
+                const activity = target.getAttribute('data-activity') || '';
+
+                contentHtml = `
+                    <div class="space-y-2">
+                        <div class="flex items-center justify-between border-b border-slate-700/60 pb-1.5">
+                            <span class="font-bold text-cyan-400 text-sm flex items-center space-x-1">
+                                <span>🪐</span> <span>${this.escapeHTML(name)}</span>
+                            </span>
+                            <span class="font-mono text-xs text-slate-400">[${coord}]</span>
+                        </div>
+                        ${activity ? `
+                            <div class="p-1.5 bg-amber-500/10 border border-amber-500/30 rounded text-amber-300 font-mono text-xs">
+                                ⏱️ ${this.escapeHTML(activity)}
+                            </div>
+                        ` : `
+                            <div class="text-slate-500 text-[11px] italic">
+                                Sin actividad reciente detectada (&gt;59m)
+                            </div>
+                        `}
+                        <div class="pt-1 border-t border-slate-800 text-[11px] text-slate-400 font-semibold uppercase tracking-wider">Accesos Rápidos:</div>
+                        <div class="grid grid-cols-2 gap-1.5 pt-0.5">
+                            <button onclick="app.showReportFor('${coord}')" class="px-2 py-1 bg-cyan-900/40 hover:bg-cyan-800/60 text-cyan-300 rounded border border-cyan-700/40 text-left transition flex items-center space-x-1">
+                                <span>📡</span> <span>Reporte</span>
+                            </button>
+                            <button onclick="app.openCargoCalcForCoord('${coord}')" class="px-2 py-1 bg-emerald-900/40 hover:bg-emerald-800/60 text-emerald-300 rounded border border-emerald-700/40 text-left transition flex items-center space-x-1">
+                                <span>🚀</span> <span>Granjeo</span>
+                            </button>
+                            <button onclick="app.openFleetDispatch('${coord}')" class="px-2 py-1 bg-indigo-900/40 hover:bg-indigo-800/60 text-indigo-300 rounded border border-indigo-700/40 text-left transition flex items-center space-x-1">
+                                <span>🛸</span> <span>Flota</span>
+                            </button>
+                            <button onclick="app.copyToClipboard('${coord}')" class="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded text-left transition flex items-center space-x-1">
+                                <span>📋</span> <span>Copiar</span>
+                            </button>
+                        </div>
+                    </div>
+                `;
+            } else if (type === 'alliance') {
+                const tag = target.getAttribute('data-tag') || '';
+                const allyName = target.getAttribute('data-ally-name') || tag;
+                const player = target.getAttribute('data-player-name') || '';
+
+                contentHtml = `
+                    <div class="space-y-2">
+                        <div class="border-b border-slate-700/60 pb-1.5">
+                            <div class="font-bold text-indigo-300 text-sm flex items-center space-x-1">
+                                <span>🛡️</span> <span>[${this.escapeHTML(tag)}]</span>
+                            </div>
+                            <div class="text-xs text-slate-300 font-medium">${this.escapeHTML(allyName)}</div>
+                        </div>
+                        <div class="text-[11px] text-slate-400">
+                            <span>Miembro: </span><span class="text-slate-200 font-semibold">${this.escapeHTML(player)}</span>
+                        </div>
+                        <div class="pt-1 border-t border-slate-800 text-[11px] text-slate-400 font-semibold uppercase tracking-wider">Accesos Rápidos:</div>
+                        <div class="space-y-1 pt-0.5">
+                            <button onclick="app.filterByAlliance('${this.escapeHTML(tag)}')" class="w-full px-2 py-1 bg-indigo-900/40 hover:bg-indigo-800/60 text-indigo-300 rounded border border-indigo-700/40 text-left transition flex items-center space-x-1">
+                                <span>🔍</span> <span>Buscar miembros de [${this.escapeHTML(tag)}]</span>
+                            </button>
+                            <button onclick="app.copyToClipboard('${this.escapeHTML(tag)}')" class="w-full px-2 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded text-left transition flex items-center space-x-1">
+                                <span>📋</span> <span>Copiar Siglas</span>
+                            </button>
+                        </div>
+                    </div>
+                `;
+            }
+
+            popoverEl.innerHTML = contentHtml;
+
+            // Positioning logic near target
+            const rect = target.getBoundingClientRect();
+            const popWidth = 260;
+            let left = rect.left;
+            let top = rect.bottom + 8;
+
+            if (left + popWidth > window.innerWidth - 10) {
+                left = window.innerWidth - popWidth - 10;
+            }
+            if (left < 10) left = 10;
+
+            if (top + 180 > window.innerHeight) {
+                top = rect.top - 180;
+                if (top < 10) top = rect.bottom + 8;
+            }
+
+            popoverEl.style.left = `${left}px`;
+            popoverEl.style.top = `${top}px`;
+            popoverEl.classList.remove('hidden');
+        };
+
+        document.addEventListener('mouseover', (e) => {
+            const target = e.target.closest('.gt-popover-target');
+            if (target) {
+                if (closeTimer) {
+                    clearTimeout(closeTimer);
+                    closeTimer = null;
+                }
+                if (activeTarget === target) return;
+                activeTarget = target;
+                if (hoverTimer) clearTimeout(hoverTimer);
+                // Espera de 1 segundo (1000ms)
+                hoverTimer = setTimeout(() => {
+                    showPopoverFor(target);
+                }, 1000);
+            } else if (e.target.closest('#gt-hover-popover')) {
+                if (closeTimer) {
+                    clearTimeout(closeTimer);
+                    closeTimer = null;
+                }
+            }
+        });
+
+        document.addEventListener('mouseout', (e) => {
+            const target = e.target.closest('.gt-popover-target');
+            if (target) {
+                if (hoverTimer) {
+                    clearTimeout(hoverTimer);
+                    hoverTimer = null;
+                }
+                closeTimer = setTimeout(() => {
+                    hidePopover();
+                }, 250);
+            } else if (e.target.closest('#gt-hover-popover')) {
+                closeTimer = setTimeout(() => {
+                    hidePopover();
+                }, 250);
+            }
+        });
+
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') hidePopover();
+        });
     }
 
     registerServiceWorker() {

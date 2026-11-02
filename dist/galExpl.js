@@ -26,6 +26,8 @@
     let isScanning = false;
     let isSpyingInProgress = false;
     let systemsScannedSession = 0;
+        isInitialJump = false;
+    let isInitialJump = false;
 
     // --- HELPERS DE TIEMPO Y NAVEGACIÓN ---
     const getRandomDelayMs = (minMs, maxMs) => {
@@ -613,6 +615,7 @@
         saveConfig();
         isScanning = true;
         isSpyingInProgress = false;
+        isInitialJump = true;
 
         const btnToggle = document.getElementById('btn-toggle-scanner');
         if (btnToggle) {
@@ -657,6 +660,12 @@
         const startS = parseInt(document.getElementById('sc-start-s')?.value) || 1;
         const endS = parseInt(document.getElementById('sc-end-s')?.value) || 499;
         const loop = document.getElementById('sc-loop')?.checked || false;
+
+        // Iniciar estrictamente en startG:startS en el primer salto
+        if (isInitialJump) {
+            isInitialJump = false;
+            return { galaxy: startG, system: startS, finished: false };
+        }
 
         let nextG = cur.galaxy;
         let nextS = cur.system;
@@ -1019,7 +1028,9 @@
 
             const isOwn = !!row.querySelector('.ownPlayerRow');
             const playerName = extractCleanPlayerName(row);
-            const allyName = row.querySelector('.cellAlliance')?.textContent.trim().replace(/^\[|\]$/g, '') || '';
+            const rawAlly = row.querySelector('.cellAlliance')?.textContent.trim().replace(/^\[|\]$/g, '') || '';
+            const allyTag = rawAlly ? (rawAlly.match(/^([^\s\d\/]+)/)?.[1] || rawAlly.split(/\s+/)[0]) : '';
+            const allyName = rawAlly;
             const planetName = row.querySelector('.cellPlanet .planetName, .cellPlanet')?.textContent.trim() || `Planeta ${pos}`;
             const playerId = extractPlayerId(row);
             const status = extractPlayerStatus(row);
@@ -1040,6 +1051,24 @@
             const debris = extractDebris(row);
 
             // Registro completo de planeta para Galaxytool
+            // Actividad / Minutero
+            let activity = null;
+            const actEl = row.querySelector('.cellPlanet .activity, .cellPlanetName .activity, .cellPlanet .minuteCounter, .cellPlanetName .minuteCounter');
+            if (actEl) {
+                const actText = actEl.textContent.trim();
+                if (actText === '*' || actText.includes('*')) {
+                    activity = { type: 'star', minutes: 15, label: '*', capturedAt: Date.now() };
+                } else {
+                    const nm = actText.match(/(\d+)/);
+                    if (nm) {
+                        const mins = parseInt(nm[1], 10);
+                        if (mins >= 15 && mins <= 59) {
+                            activity = { type: 'minutes', minutes: mins, label: `${mins} min`, capturedAt: Date.now() };
+                        }
+                    }
+                }
+            }
+
             const planetObj = {
                 galaxy: curGalaxy,
                 system: curSystem,
@@ -1049,10 +1078,12 @@
                 name: planetName,
                 playerId,
                 playerName,
-                allianceTag: allyName,
+                allianceTag: allyTag,
+                allianceName: rawAlly,
                 allianceId: 0,
                 status,
                 playerStatus: status,
+                activity,
                 hasMoon,
                 moonSize,
                 debris,
