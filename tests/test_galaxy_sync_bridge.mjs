@@ -358,10 +358,19 @@ async function runTests() {
     assert.strictEqual(getResEmpty.data.planets.length, 0, 'Vacant system should return 0 planets');
     console.log('✓ Successfully purged entire solar system when rescanned as empty.');
 
-    // CLEANUP: Reset data storage so no test simulation data is left on disk
+    // CLEANUP: Clean only test simulation data (galaxy 2, system 45) without wiping real user data
     const fs = await import('fs');
-    fs.writeFileSync('data/planets.json', '{}\n', 'utf8');
-    fs.writeFileSync('data/reports.json', '{}\n', 'utf8');
+    if (fs.existsSync('data/planets.json')) {
+        try {
+            const currentData = JSON.parse(fs.readFileSync('data/planets.json', 'utf8'));
+            for (const k of Object.keys(currentData)) {
+                if (currentData[k].galaxy === 2 && currentData[k].system === 45) {
+                    delete currentData[k];
+                }
+            }
+            fs.writeFileSync('data/planets.json', JSON.stringify(currentData, null, 2), 'utf8');
+        } catch (_) {}
+    }
     console.log('✓ Cleaned up all test artifacts from data storage.');
 
     console.log('\n--- ALL GALAXY SYNC BRIDGE TESTS PASSED (100%) ---');

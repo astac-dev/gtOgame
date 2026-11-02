@@ -10,7 +10,10 @@
 // @match        file://*/*
 // @grant        GM_setValue
 // @grant        GM_getValue
+// @grant        GM_xmlhttpRequest
 // @grant        unsafeWindow
+// @connect      localhost
+// @connect      127.0.0.1
 // @run-at       document-idle
 // ==/UserScript==
 

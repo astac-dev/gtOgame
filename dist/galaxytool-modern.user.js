@@ -6,7 +6,10 @@
 // @author       Galaxytool Modern Team
 // @match        *://*.ogame.gameforge.com/game/index.php*
 // @run-at       document-start
-// @grant        none
+// @grant        GM_xmlhttpRequest
+// @grant        unsafeWindow
+// @connect      localhost
+// @connect      127.0.0.1
 // ==/UserScript==
 
 (function() {
@@ -3164,8 +3167,9 @@ class InGameHUD {
             }
         }
 
-        // Expose public developer API on window
-        window.Galaxytool = {
+        // Expose public developer API on window and unsafeWindow
+        const winContext = typeof unsafeWindow !== 'undefined' ? unsafeWindow : window;
+        winContext.Galaxytool = window.Galaxytool = {
             version: '6.0.0',
             storage,
             interceptor,
