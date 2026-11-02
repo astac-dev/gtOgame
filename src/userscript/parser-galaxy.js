@@ -24,11 +24,12 @@ export class GalaxyParser {
             if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
                 try {
                     const parsed = JSON.parse(trimmed);
-                    if (parsed.galaxy && parsed.system) {
-                        return this.parseJSONGalaxy(parsed);
-                    }
+                    // OGame returns galaxyContent as HTML snippet inside JSON payload
                     if (parsed.galaxyContent && typeof parsed.galaxyContent === 'string') {
                         return this.parseHTMLGalaxy(parsed.galaxyContent, parseInt(parsed.galaxy, 10), parseInt(parsed.system, 10));
+                    }
+                    if (parsed.galaxy && parsed.system && (Array.isArray(parsed.rows) || Array.isArray(parsed.galaxyContent))) {
+                        return this.parseJSONGalaxy(parsed);
                     }
                 } catch (_) {}
             }
@@ -217,6 +218,46 @@ export class GalaxyParser {
     }
 
     /**
+     * Inspects row links, tooltips and containers to detect the true coordinates rendered in the table
+     */
+    static detectTableCoordinates(doc, fallbackG, fallbackS) {
+        // 1. Check data-galaxy and data-system on container
+        const container = doc.querySelector('#galaxyTable, #galaxyContent, .galaxyTable, #galaxy_head');
+        if (container) {
+            const dg = parseInt(container.getAttribute('data-galaxy'), 10);
+            const ds = parseInt(container.getAttribute('data-system'), 10);
+            if (dg && ds) return { galaxy: dg, system: ds };
+        }
+
+        // 2. Check individual rows for coordinate evidence
+        for (let pos = 1; pos <= 15; pos++) {
+            const row = doc.getElementById(`galaxyRow${pos}`) || doc.querySelector(`[id="galaxyRow${pos}"]`);
+            if (!row) continue;
+            const html = row.innerHTML || '';
+
+            // Match tooltip "[G:S:P]"
+            const tipMatch = html.match(/\[(\d+):(\d+):\d+\]/);
+            if (tipMatch) {
+                return { galaxy: parseInt(tipMatch[1], 10), system: parseInt(tipMatch[2], 10) };
+            }
+
+            // Match sendShips(mission, g, s, p, ...)
+            const shipMatch = html.match(/sendShips\s*\(\s*\d+\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*\d+/i);
+            if (shipMatch) {
+                return { galaxy: parseInt(shipMatch[1], 10), system: parseInt(shipMatch[2], 10) };
+            }
+
+            // Match URL parameters galaxy=X&system=Y
+            const urlMatch = html.match(/galaxy=(\d+)&amp;system=(\d+)/i) || html.match(/galaxy=(\d+)&system=(\d+)/i);
+            if (urlMatch) {
+                return { galaxy: parseInt(urlMatch[1], 10), system: parseInt(urlMatch[2], 10) };
+            }
+        }
+
+        return { galaxy: fallbackG, system: fallbackS };
+    }
+
+    /**
      * Extracts full system data directly from active document DOM
      */
     static parseFromLiveDOM(doc = (typeof document !== 'undefined' ? document : null)) {
@@ -226,9 +267,19 @@ export class GalaxyParser {
         const sInput = doc.querySelector('#system_input, input[name="system"]');
         if (!gInput || !sInput) return null;
 
-        const galaxy = parseInt(gInput.value, 10);
-        const system = parseInt(sInput.value, 10);
-        if (!galaxy || !system) return null;
+        const inputGalaxy = parseInt(gInput.value, 10);
+        const inputSystem = parseInt(sInput.value, 10);
+        if (!inputGalaxy || !inputSystem) return null;
+
+        // Verify that the rendered table actually matches the input coordinates
+        const tableCoords = this.detectTableCoordinates(doc, inputGalaxy, inputSystem);
+        if (tableCoords.galaxy !== inputGalaxy || tableCoords.system !== inputSystem) {
+            // Table rows belong to a different system (mid-load AJAX transition); do NOT ingest stale data!
+            return null;
+        }
+
+        const galaxy = inputGalaxy;
+        const system = inputSystem;
 
         const planets = [];
         for (let pos = 1; pos <= 15; pos++) {
@@ -280,14 +331,21 @@ export class GalaxyParser {
             allianceTag = clone.textContent.trim().replace(/^\[|\]$/g, '');
         }
 
-        // Player Status
-        let status = '';
-        if (row.querySelector('.status_abbr_longinactive')) status = 'I';
-        else if (row.querySelector('.status_abbr_inactive')) status = 'i';
-        else if (row.querySelector('.status_abbr_vacation')) status = 'v';
-        else if (row.querySelector('.status_abbr_banned')) status = 'b';
-        else if (row.querySelector('.status_abbr_outlaw')) status = 'bandit';
-        else if (row.querySelector('.status_abbr_honorableTarget')) status = 'hp';
+        // Player Status: capture all combinations (inactive, long inactive, vacation, banned, bandit, hp)
+        const statusList = [];
+        if (row.querySelector('.status_abbr_longinactive')) statusList.push('I');
+        else if (row.querySelector('.status_abbr_inactive')) statusList.push('i');
+        if (row.querySelector('.status_abbr_vacation')) statusList.push('v');
+        if (row.querySelector('.status_abbr_banned')) statusList.push('b');
+        if (row.querySelector('.status_abbr_outlaw')) statusList.push('bandit');
+        if (row.querySelector('.status_abbr_honorableTarget')) statusList.push('hp');
+        if (row.querySelector('.status_abbr_strong')) statusList.push('s');
+        if (row.querySelector('.status_abbr_noob')) statusList.push('n');
+
+        let status = statusList.join(' ');
+        if (!status && playerName) {
+            status = row.querySelector('.ownPlayerRow') ? 'own' : 'active';
+        }
 
         // Moon
         const moonCell = row.querySelector('.cellMoon');

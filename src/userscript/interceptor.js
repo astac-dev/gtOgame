@@ -106,12 +106,15 @@ export class NetworkInterceptor {
     hookLiveDOM() {
         if (typeof document === 'undefined') return;
 
+        let debounceTimer = null;
         const checkDOM = () => {
             const parsed = GalaxyParser.parseFromLiveDOM(document);
             if (parsed && parsed.galaxy && parsed.system) {
                 const coordKey = `${parsed.galaxy}:${parsed.system}`;
-                if (this.lastParsedCoord !== coordKey) {
+                const now = Date.now();
+                if (this.lastParsedCoord !== coordKey || (now - (this.lastParsedTime || 0)) > 2500) {
                     this.lastParsedCoord = coordKey;
+                    this.lastParsedTime = now;
                     this.processGalaxyData(parsed);
                 }
             }
@@ -125,12 +128,11 @@ export class NetworkInterceptor {
 
         if (typeof MutationObserver !== 'undefined') {
             const observer = new MutationObserver(() => {
-                const galaxyContent = document.getElementById('galaxyContent');
-                if (galaxyContent) {
-                    checkDOM();
-                }
+                clearTimeout(debounceTimer);
+                debounceTimer = setTimeout(checkDOM, 350);
             });
-            observer.observe(document.body, { childList: true, subtree: true });
+            const target = document.getElementById('galaxyContent') || document.getElementById('middle') || document.body;
+            observer.observe(target, { childList: true, subtree: true });
         }
     }
 

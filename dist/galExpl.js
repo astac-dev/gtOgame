@@ -771,6 +771,41 @@
         waitForLoadFinish(targetG, targetS, 0);
     }
 
+    function isSystemDOMReady(targetG, targetS) {
+        if (isOGameBusy()) return false;
+
+        const gInput = document.getElementById('galaxy_input');
+        const sInput = document.getElementById('system_input');
+        if (gInput && parseInt(gInput.value, 10) !== targetG) return false;
+        if (sInput && parseInt(sInput.value, 10) !== targetS) return false;
+
+        // Check if any row in the table carries coordinate links
+        for (let pos = 1; pos <= 15; pos++) {
+            const row = document.getElementById(`galaxyRow${pos}`);
+            if (!row) continue;
+            const html = row.innerHTML || '';
+            const m = html.match(/\[(\d+):(\d+):\d+\]/) || 
+                      html.match(/galaxy=(\d+)&amp;system=(\d+)/i) || 
+                      html.match(/galaxy=(\d+)&system=(\d+)/i) || 
+                      html.match(/sendShips\s*\(\s*\d+\s*,\s*(\d+)\s*,\s*(\d+)/i);
+            if (m) {
+                const g = parseInt(m[1], 10);
+                const s = parseInt(m[2], 10);
+                if (g === targetG && s === targetS) return true;
+                if (g !== targetG || s !== targetS) return false; // Still displaying previous system!
+            }
+        }
+
+        const container = document.querySelector('#galaxyTable, #galaxyContent, .galaxyTable');
+        if (container) {
+            const cg = parseInt(container.getAttribute('data-galaxy'), 10);
+            const cs = parseInt(container.getAttribute('data-system'), 10);
+            if (cg && cs) return cg === targetG && cs === targetS;
+        }
+
+        return true;
+    }
+
     function waitForLoadFinish(targetG, targetS, elapsedMs) {
         if (!isScanning) return;
 
@@ -781,17 +816,16 @@
             return;
         }
 
-        if (elapsedMs < 250 || isOGameBusy()) {
+        if (elapsedMs < 300 || !isSystemDOMReady(targetG, targetS)) {
             updateTelemetry("Cargando datos...", `[${targetG}:${targetS}]`, `<span style="color:#e67e22;">Recibiendo...</span>`);
-            setTimeout(() => waitForLoadFinish(targetG, targetS, elapsedMs + 200), 200);
+            setTimeout(() => waitForLoadFinish(targetG, targetS, elapsedMs + 150), 150);
             return;
         }
 
         systemsScannedSession++;
-        const cur = getCurrentCoords();
-        updateTelemetry("Sistema cargado", `[${cur.galaxy}:${cur.system}]`, "Analizando inactivos...");
+        updateTelemetry("Sistema cargado", `[${targetG}:${targetS}]`, "Analizando inactivos...");
 
-        processSystemInactives(cur.galaxy, cur.system);
+        processSystemInactives(targetG, targetS);
     }
 
     // --- INTEGRACIÓN Y SINCRONIZACIÓN CON GALAXYTOOL MODERN ---
@@ -804,13 +838,22 @@
     }
 
     function extractPlayerStatus(row) {
-        if (row.querySelector('.status_abbr_longinactive')) return 'I';
-        if (row.querySelector('.status_abbr_inactive')) return 'i';
-        if (row.querySelector('.status_abbr_vacation')) return 'v';
-        if (row.querySelector('.status_abbr_banned')) return 'b';
-        if (row.querySelector('.status_abbr_outlaw')) return 'bandit';
-        if (row.querySelector('.status_abbr_honorableTarget')) return 'hp';
-        return '';
+        const statusList = [];
+        if (row.querySelector('.status_abbr_longinactive')) statusList.push('I');
+        else if (row.querySelector('.status_abbr_inactive')) statusList.push('i');
+        if (row.querySelector('.status_abbr_vacation')) statusList.push('v');
+        if (row.querySelector('.status_abbr_banned')) statusList.push('b');
+        if (row.querySelector('.status_abbr_outlaw')) statusList.push('bandit');
+        if (row.querySelector('.status_abbr_honorableTarget')) statusList.push('hp');
+        if (row.querySelector('.status_abbr_strong')) statusList.push('s');
+        if (row.querySelector('.status_abbr_noob')) statusList.push('n');
+
+        let status = statusList.join(' ');
+        if (!status) {
+            const hasPlayer = row.querySelector('.cellPlayerName .playerName, .cellPlayerName')?.textContent.trim();
+            if (hasPlayer) status = row.querySelector('.ownPlayerRow') ? 'own' : 'active';
+        }
+        return status;
     }
 
     function extractDebris(row) {

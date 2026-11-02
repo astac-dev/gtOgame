@@ -937,12 +937,18 @@ class DashboardApp {
     }
 
     formatStatusBadge(status) {
-        if (!status) return `<span class="px-1.5 py-0.5 text-xs rounded bg-slate-800 text-slate-400">Activo</span>`;
-        if (status.includes('I')) return `<span class="px-1.5 py-0.5 text-xs rounded bg-red-950 text-red-400 font-bold border border-red-800 font-mono" title="Inactivo 28+ días">(I)</span>`;
-        if (status.includes('i')) return `<span class="px-1.5 py-0.5 text-xs rounded bg-amber-950 text-amber-400 font-bold border border-amber-800 font-mono" title="Inactivo 7+ días">(i)</span>`;
-        if (status.includes('v')) return `<span class="px-1.5 py-0.5 text-xs rounded bg-blue-950 text-blue-400 font-mono" title="Modo Vacaciones">(v)</span>`;
-        if (status.includes('b')) return `<span class="px-1.5 py-0.5 text-xs rounded bg-purple-950 text-purple-400 font-mono" title="Bloqueado">(b)</span>`;
-        return `<span class="px-1.5 py-0.5 text-xs rounded bg-slate-800 text-slate-400 font-mono">${status}</span>`;
+        if (!status || status === 'active') return `<span class="px-1.5 py-0.5 text-xs rounded bg-slate-800 text-slate-400">Activo</span>`;
+        if (status === 'own') return `<span class="px-1.5 py-0.5 text-xs rounded bg-cyan-950 text-cyan-400 border border-cyan-800 font-mono">Tuyo</span>`;
+
+        const badges = [];
+        if (status.includes('I')) badges.push(`<span class="px-1.5 py-0.5 text-xs rounded bg-red-950 text-red-400 font-bold border border-red-800 font-mono" title="Inactivo 28+ días">(I)</span>`);
+        else if (status.includes('i')) badges.push(`<span class="px-1.5 py-0.5 text-xs rounded bg-amber-950 text-amber-400 font-bold border border-amber-800 font-mono" title="Inactivo 7+ días">(i)</span>`);
+        if (status.includes('v')) badges.push(`<span class="px-1.5 py-0.5 text-xs rounded bg-blue-950 text-blue-400 font-mono" title="Modo Vacaciones">(v)</span>`);
+        if (status.includes('b')) badges.push(`<span class="px-1.5 py-0.5 text-xs rounded bg-purple-950 text-purple-400 font-mono" title="Bloqueado">(b)</span>`);
+        if (status.includes('bandit')) badges.push(`<span class="px-1.5 py-0.5 text-xs rounded bg-red-900/60 text-red-300 font-mono" title="Bandido">Bandido</span>`);
+        if (status.includes('hp')) badges.push(`<span class="px-1.5 py-0.5 text-xs rounded bg-yellow-900/60 text-yellow-300 font-mono" title="Objetivo Honorable">HP</span>`);
+
+        return badges.length > 0 ? badges.join(' ') : `<span class="px-1.5 py-0.5 text-xs rounded bg-slate-800 text-slate-400 font-mono">${this.escapeHTML(status)}</span>`;
     }
 
     formatNumber(num) {
