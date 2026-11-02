@@ -15,8 +15,15 @@ class MockShadowRoot {
         this.children = [];
     }
     appendChild(child) {
+        child.parentNode = this;
         this.children.push(child);
         return child;
+    }
+    remove() {
+        if (this.parentNode && this.parentNode.children) {
+            const idx = this.parentNode.children.indexOf(this);
+            if (idx !== -1) this.parentNode.children.splice(idx, 1);
+        }
     }
     querySelector(selector) {
         for (const child of this.children) {
@@ -159,6 +166,23 @@ async function runTests() {
     hud.fillShips(202, 150);
     assert(mockShipInput.value === 150, "Auto-filled 150 Small Cargoes into ship input field");
     assert(inputDispatched === true, "Dispatched input event for native OGame reactive UI");
+
+    // --- Testing Configuration Modal & Toasts ---
+    console.log("\n--- Testing Settings Modal & Toast Notifications ---");
+    const settingsModal = hud.shadow.querySelector('#gtSettingsModal');
+    assert(settingsModal !== null, "Settings & Telemetry Modal rendered in Shadow DOM");
+
+    await hud.toggleSettings(true);
+    assert(settingsModal.style.display === 'flex', "Settings modal opened (display: flex)");
+
+    await hud.toggleSettings(false);
+    assert(settingsModal.style.display === 'none', "Settings modal closed (display: none)");
+
+    hud.notify("Sistema 1:154 interceptado y guardado", "info", "🪐");
+    const toastContainer = hud.shadow.querySelector('#gtToastContainer');
+    assert(toastContainer !== null, "Toast container exists in Shadow DOM");
+    assert(toastContainer.children.length > 0, "Toast notification created and mounted");
+    assert(toastContainer.children[0].innerHTML.includes("Sistema 1:154"), "Toast contains capture feedback message");
 
     // --- SUMMARY ---
     console.log("\n==========================================================");

@@ -6,12 +6,27 @@
 
 import { GalaxyParser } from './parser-galaxy.js';
 import { ReportParser } from './parser-reports.js';
+import { HighscoreParser } from './parser-highscore.js';
 
 export class NetworkInterceptor {
     constructor(storageEngine, onDataCaptured = null) {
         this.storage = storageEngine;
         this.onDataCaptured = onDataCaptured;
         this.active = false;
+        this.telemetryLog = [];
+    }
+
+    logEvent(type, summary, details = null) {
+        const item = {
+            id: Date.now() + Math.random(),
+            timestamp: Date.now(),
+            type,
+            summary,
+            details
+        };
+        this.telemetryLog.unshift(item);
+        if (this.telemetryLog.length > 50) this.telemetryLog.pop();
+        return item;
     }
 
     /**
@@ -24,6 +39,7 @@ export class NetworkInterceptor {
         this.hookFetch();
         this.hookXHR();
         console.log("[Galaxytool-Modern] Passive Network Interceptor active.");
+        this.logEvent('system', 'Interceptor pasivo activado y en escucha.');
     }
 
     hookFetch() {
@@ -41,6 +57,8 @@ export class NetworkInterceptor {
                     clone.text().then(text => self.handleGalaxyResponse(text));
                 } else if (url.includes('page=messages') || url.includes('tab=espionage')) {
                     clone.text().then(text => self.handleReportResponse(text));
+                } else if (url.includes('page=highscore') || url.includes('component=highscore')) {
+                    clone.text().then(text => self.handleHighscoreResponse(text));
                 }
             } catch (err) {
                 console.debug("[Galaxytool-Modern] Interceptor non-fatal notice:", err);
@@ -68,6 +86,8 @@ export class NetworkInterceptor {
                         self.handleGalaxyResponse(this.responseText);
                     } else if (url.includes('page=messages') || url.includes('tab=espionage')) {
                         self.handleReportResponse(this.responseText);
+                    } else if (url.includes('page=highscore') || url.includes('component=highscore')) {
+                        self.handleHighscoreResponse(this.responseText);
                     }
                 } catch (err) {
                     console.debug("[Galaxytool-Modern] XHR Interceptor non-fatal notice:", err);
@@ -95,9 +115,12 @@ export class NetworkInterceptor {
             }
         }
 
-        console.log(`[Galaxytool-Modern] Saved ${parsed.planets.length} celestial bodies for System ${parsed.galaxy}:${parsed.system}`);
+        const summary = `Sistema ${parsed.galaxy}:${parsed.system} interceptado (${parsed.planets.length} cuerpos celestes guardados)`;
+        console.log(`[Galaxytool-Modern] ${summary}`);
+        this.logEvent('galaxy', summary, { galaxy: parsed.galaxy, system: parsed.system, count: parsed.planets.length });
+
         if (this.onDataCaptured) {
-            this.onDataCaptured({ type: 'galaxy', data: parsed });
+            this.onDataCaptured({ type: 'galaxy', data: parsed, summary });
         }
     }
 
@@ -106,9 +129,38 @@ export class NetworkInterceptor {
         if (!parsed || !parsed.galaxy || !parsed.system) return;
 
         const saved = await this.storage.saveReport(parsed);
-        console.log(`[Galaxytool-Modern] Espionage report saved for [${parsed.galaxy}:${parsed.system}:${parsed.position}]`);
+        const summary = `Reporte de espionaje [${parsed.galaxy}:${parsed.system}:${parsed.position}${parsed.isMoon ? ' Luna' : ''}] interceptado`;
+        console.log(`[Galaxytool-Modern] ${summary}`);
+        this.logEvent('report', summary, { coords: `${parsed.galaxy}:${parsed.system}:${parsed.position}` });
+
         if (this.onDataCaptured) {
-            this.onDataCaptured({ type: 'report', data: saved });
+            this.onDataCaptured({ type: 'report', data: saved, summary });
+        }
+    }
+
+    async handleHighscoreResponse(content) {
+        const parsed = HighscoreParser.parse(content);
+        if (!parsed || !parsed.entries || parsed.entries.length === 0) return;
+
+        for (const entry of parsed.entries) {
+            if (entry.playerId) {
+                await this.storage.savePlayer({
+                    id: entry.playerId,
+                    name: entry.playerName,
+                    allianceTag: entry.allianceTag,
+                    score: entry.score,
+                    rank: entry.rank,
+                    updatedAt: Date.now()
+                });
+            }
+        }
+
+        const summary = `Tabla de puntajes: ${parsed.entries.length} jugadores actualizados en el índice`;
+        console.log(`[Galaxytool-Modern] ${summary}`);
+        this.logEvent('highscore', summary, { count: parsed.entries.length });
+
+        if (this.onDataCaptured) {
+            this.onDataCaptured({ type: 'highscore', data: parsed, summary });
         }
     }
 }

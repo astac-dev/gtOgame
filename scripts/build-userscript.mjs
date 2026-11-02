@@ -41,15 +41,31 @@ const USER_SCRIPT_FOOTER = `
             autoBroadcast: true
         });
 
+        let hud = null;
+
         const interceptor = new NetworkInterceptor(storage, (event) => {
             if (event.type === 'report') {
-                chatBus.queueReport(event.data);
-                console.log("[Galaxytool-Modern] Report queued for In-Game Chat Sync");
+                if (hud && hud.config && !hud.config.syncReports) return;
+                if (!hud || !hud.config || hud.config.syncChat) {
+                    chatBus.queueReport(event.data);
+                    console.log("[Galaxytool-Modern] Report queued for In-Game Chat Sync");
+                }
+                if (hud) hud.notify(event.summary, 'success', '📡');
+            } else if (event.type === 'galaxy') {
+                if (hud && hud.config && !hud.config.syncGalaxy) return;
+                if (hud) hud.notify(event.summary, 'info', '🪐');
+            } else if (event.type === 'highscore') {
+                if (hud && hud.config && !hud.config.syncHighscores) return;
+                if (hud) hud.notify(event.summary, 'info', '🏆');
             }
         });
         interceptor.start();
 
-        const hud = new InGameHUD(storage, chatBus);
+        hud = new InGameHUD(storage, chatBus, interceptor);
+        chatBus.onReportReceived = (report) => {
+            if (hud) hud.notify('Inteligencia recibida de aliado: [' + report.galaxy + ':' + report.system + ':' + report.position + ']', 'success', '💬');
+        };
+
         if (typeof document !== 'undefined') {
             if (document.readyState === 'loading') {
                 document.addEventListener('DOMContentLoaded', () => hud.init());
@@ -100,6 +116,7 @@ const files = [
     'src/chat/chat-bus.js',
     'src/userscript/parser-galaxy.js',
     'src/userscript/parser-reports.js',
+    'src/userscript/parser-highscore.js',
     'src/userscript/interceptor.js',
     'src/ui/hud.js'
 ];
