@@ -26,8 +26,8 @@
     let isScanning = false;
     let isSpyingInProgress = false;
     let systemsScannedSession = 0;
-        isInitialJump = false;
-    let isInitialJump = false;
+    let currentTargetG = 1;
+    let currentTargetS = 1;
 
     // --- HELPERS DE TIEMPO Y NAVEGACIÓN ---
     const getRandomDelayMs = (minMs, maxMs) => {
@@ -162,7 +162,7 @@
 
     // --- MOTOR DE ESPIONAJE DIRECTO Y CLIC ORGÁNICO ---
     function executeEspionage(target) {
-        console.log(`[Radar Galaxia] 🕵️ Ejecutando orden de espionaje a ${target.label}...`);
+        console.log(`[Radar Galaxia] Ejecutando orden de espionaje a ${target.label}...`);
 
         let executed = false;
         const candidateElements = [
@@ -184,14 +184,14 @@
                 const t = parseInt(match[5]); // 1 = planeta, 3 = luna
                 const amount = parseInt(match[6]); // cantidad de sondas
 
-                console.log(`[Radar Galaxia] 🎯 Parámetros detectados: sendShips(${mission}, ${g}, ${s}, ${p}, ${t}, ${amount})`);
+                console.log(`[Radar Galaxia] Parámetros detectados: sendShips(${mission}, ${g}, ${s}, ${p}, ${t}, ${amount})`);
 
                 // Invocación directa en el contexto de la ventana principal
                 if (typeof win.sendShips === 'function') {
                     try {
                         win.sendShips(mission, g, s, p, t, amount);
                         executed = true;
-                        console.log("[Radar Galaxia] ✅ win.sendShips ejecutado exitosamente.");
+                        console.log("[Radar Galaxia] win.sendShips ejecutado exitosamente.");
                     } catch (err) {
                         console.warn("[Radar Galaxia] Error en win.sendShips:", err);
                     }
@@ -202,7 +202,7 @@
                     try {
                         win.eval(`sendShips(${mission}, ${g}, ${s}, ${p}, ${t}, ${amount})`);
                         executed = true;
-                        console.log("[Radar Galaxia] ✅ win.eval(sendShips) ejecutado con éxito.");
+                        console.log("[Radar Galaxia] win.eval(sendShips) ejecutado con éxito.");
                     } catch (err) {
                         console.warn("[Radar Galaxia] Error en win.eval(sendShips):", err);
                     }
@@ -215,13 +215,13 @@
         if (!executed) {
             const probeQty = win.spionageAmount || 15;
             const targetType = target.type === 'moon' ? 3 : 1;
-            console.log(`[Radar Galaxia] 🛠️ Invocando sendShips(6, ${target.galaxy}, ${target.system}, ${target.position}, ${targetType}, ${probeQty})`);
+            console.log(`[Radar Galaxia] Invocando sendShips(6, ${target.galaxy}, ${target.system}, ${target.position}, ${targetType}, ${probeQty})`);
 
             if (typeof win.sendShips === 'function') {
                 try {
                     win.sendShips(6, target.galaxy, target.system, target.position, targetType, probeQty);
                     executed = true;
-                    console.log("[Radar Galaxia] ✅ sendShips nativo ejecutado.");
+                    console.log("[Radar Galaxia] sendShips nativo ejecutado.");
                 } catch (err) {
                     console.warn("[Radar Galaxia] Error invocando sendShips nativo:", err);
                 }
@@ -290,7 +290,7 @@
         panel.innerHTML = `
             <div id="scanner-drag-handle" style="cursor: move; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px dashed #00d2d3; padding-bottom: 6px; margin-bottom: 10px;">
                 <span style="color: #00d2d3; font-weight: bold; font-size: 12px; letter-spacing: 0.5px;">
-                    🌌 Radar de Galaxia v1.11
+                    [Radar] Explorador de Galaxia v1.11
                 </span>
                 <div>
                     <span id="btn-minimize-scanner" style="cursor: pointer; padding: 0 4px; font-weight: bold; color: #7f8c8d;" title="Minimizar / Expandir">_</span>
@@ -301,9 +301,9 @@
                 <!-- RANGO DE GALAXIA Y SISTEMA -->
                 <div style="background: rgba(0, 0, 0, 0.4); padding: 8px; border-radius: 5px; margin-bottom: 8px; border: 1px solid rgba(255,255,255,0.08);">
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-                        <span style="font-weight: bold; color: #3498db;">🎯 Rango de Coordenadas:</span>
+                        <span style="font-weight: bold; color: #3498db;">Rango de Coordenadas:</span>
                         <button id="btn-use-current-coords" style="background: #2c3e50; color: #bdc3c7; border: 1px solid #7f8c8d; border-radius: 3px; font-size: 9px; padding: 2px 5px; cursor: pointer;">
-                            📍 Usar Actuales
+                            Usar Coords Actuales
                         </button>
                     </div>
 
@@ -311,7 +311,7 @@
                         <span style="color: #bdc3c7;">Galaxias:</span>
                         <div style="display: flex; align-items: center; gap: 4px;">
                             <input type="number" id="sc-start-g" min="1" max="${maxGalaxies}" value="${savedStartG}" style="width: 48px; padding: 2px 4px; background: #1b2838; color: #fff; border: 1px solid #34495e; border-radius: 3px; text-align: center;">
-                            <span style="color: #7f8c8d;">➜</span>
+                            <span style="color: #7f8c8d;">-></span>
                             <input type="number" id="sc-end-g" min="1" max="${maxGalaxies}" value="${savedEndG}" style="width: 48px; padding: 2px 4px; background: #1b2838; color: #fff; border: 1px solid #34495e; border-radius: 3px; text-align: center;">
                         </div>
                     </div>
@@ -320,7 +320,7 @@
                         <span style="color: #bdc3c7;">Sistemas:</span>
                         <div style="display: flex; align-items: center; gap: 4px;">
                             <input type="number" id="sc-start-s" min="1" max="${maxSystems}" value="${savedStartS}" style="width: 48px; padding: 2px 4px; background: #1b2838; color: #fff; border: 1px solid #34495e; border-radius: 3px; text-align: center;">
-                            <span style="color: #7f8c8d;">➜</span>
+                            <span style="color: #7f8c8d;">-></span>
                             <input type="number" id="sc-end-s" min="1" max="${maxSystems}" value="${savedEndS}" style="width: 48px; padding: 2px 4px; background: #1b2838; color: #fff; border: 1px solid #34495e; border-radius: 3px; text-align: center;">
                         </div>
                     </div>
@@ -329,7 +329,7 @@
                 <!-- VELOCIDAD Y JITTER EN MILISEGUNDOS -->
                 <div style="background: rgba(0, 0, 0, 0.4); padding: 8px; border-radius: 5px; margin-bottom: 8px; border: 1px solid rgba(255,255,255,0.08);">
                     <div style="font-weight: bold; color: #f1c40f; margin-bottom: 6px;">
-                        ⏱️ Intervalo al Azar (en Milisegundos):
+                        Intervalo al Azar (en Milisegundos):
                     </div>
                     <div style="display: flex; align-items: center; justify-content: space-between;">
                         <span style="color: #bdc3c7;">Min (ms):</span>
@@ -342,7 +342,7 @@
                 <!-- PROTOCOLO DE INACTIVOS Y ESPIONAJE (AGR) -->
                 <div style="background: rgba(0, 0, 0, 0.4); padding: 8px; border-radius: 5px; margin-bottom: 8px; border: 1px solid rgba(255,255,255,0.08);">
                     <div style="font-weight: bold; color: #e67e22; margin-bottom: 6px;">
-                        🕵️ Espionaje de Inactivos (Antigame Reborn):
+                        Espionaje de Inactivos (Antigame Reborn):
                     </div>
                     <div style="display: flex; flex-direction: column; gap: 4px; margin-bottom: 4px;">
                         <div style="display: flex; align-items: center; gap: 6px;">
@@ -366,8 +366,8 @@
                 <!-- CONEXIÓN CON GALAXYTOOL MODERN -->
                 <div style="background: rgba(0, 240, 255, 0.08); padding: 8px; border-radius: 5px; margin-bottom: 8px; border: 1px solid rgba(0, 210, 211, 0.4);">
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-                        <span style="font-weight: bold; color: #00d2d3;">🛡️ Galaxytool Modern:</span>
-                        <span id="sc-gt-status-badge" style="color: #2ecc71; font-weight: bold; font-size: 9px;">● Sincronizado</span>
+                        <span style="font-weight: bold; color: #00d2d3;">Galaxytool Modern:</span>
+                        <span id="sc-gt-status-badge" style="color: #2ecc71; font-weight: bold; font-size: 9px;">[Conectado]</span>
                     </div>
                     <div style="display: flex; align-items: center; gap: 6px;">
                         <input type="checkbox" id="sc-sync-gt" ${savedSyncGT ? 'checked' : ''} style="cursor: pointer;">
@@ -388,10 +388,10 @@
                 <!-- BOTONES DE ACCIÓN -->
                 <div style="display: flex; gap: 6px; margin-bottom: 8px;">
                     <button id="btn-toggle-scanner" style="flex: 2; padding: 8px; font-weight: bold; background: #27ae60; color: white; border: none; border-radius: 4px; cursor: pointer; transition: 0.2s;">
-                        🚀 INICIAR ESCANEO
+                        INICIAR ESCANEO
                     </button>
                     <button id="btn-stop-scanner" style="flex: 1; padding: 8px; font-weight: bold; background: #c0392b; color: white; border: none; border-radius: 4px; cursor: pointer; transition: 0.2s;">
-                        🛑 STOP
+                        DETENER
                     </button>
                 </div>
 
@@ -419,17 +419,17 @@
                 <div style="background: rgba(0, 0, 0, 0.5); padding: 6px 8px; border-radius: 4px; border: 1px solid rgba(255,255,255,0.06);">
                     <div style="display: flex; justify-content: space-between; align-items: center;">
                         <span style="color: #ecf0f1; font-size: 10px;">
-                            💀 Inactivos en Memoria: <b id="sc-inactives-count" style="color: #e74c3c;">${inactivesCount}</b>
+                            Inactivos en Memoria: <b id="sc-inactives-count" style="color: #e74c3c;">${inactivesCount}</b>
                         </span>
                         <div style="display: flex; gap: 4px;">
                             <button id="btn-toggle-inactives-list" style="background: #2c3e50; color: #bdc3c7; border: 1px solid #7f8c8d; border-radius: 3px; font-size: 9px; padding: 2px 4px; cursor: pointer;">
-                                👁️ Ver Lista
+                                Ver Lista
                             </button>
                             <button id="btn-copy-inactives-list" style="background: #2980b9; color: white; border: none; border-radius: 3px; font-size: 9px; padding: 2px 4px; cursor: pointer;" title="Copiar reporte al portapapeles">
-                                📋 Copiar
+                                Copiar
                             </button>
                             <button id="btn-clear-inactives-list" style="background: #7f8c8d; color: white; border: none; border-radius: 3px; font-size: 9px; padding: 2px 4px; cursor: pointer;" title="Limpiar memoria">
-                                🗑️
+                                Limpiar
                             </button>
                         </div>
                     </div>
@@ -474,7 +474,7 @@
             const container = document.getElementById('sc-inactives-list-container');
             if (container) {
                 container.style.display = isListOpen ? 'block' : 'none';
-                btnToggleList.textContent = isListOpen ? '❌ Cerrar' : '👁️ Ver Lista';
+                btnToggleList.textContent = isListOpen ? 'Cerrar' : 'Ver Lista';
                 if (isListOpen) renderInactivesList();
             }
         });
@@ -492,7 +492,7 @@
 
             navigator.clipboard.writeText(textReport).then(() => {
                 const oldTxt = btnCopyList.textContent;
-                btnCopyList.textContent = "✅ ¡Copiado!";
+                btnCopyList.textContent = "Copiado";
                 setTimeout(() => { btnCopyList.textContent = oldTxt; }, 2000);
             }).catch(() => {
                 alert(textReport);
@@ -526,7 +526,7 @@
         // Iniciar / Pausar
         btnToggle.addEventListener('click', () => {
             if (!isGalaxyView()) {
-                alert("⚠️ Para utilizar el radar debes estar en la vista de Galaxia de OGame.");
+                alert("Aviso: Para utilizar el radar debes estar en la vista de Galaxia de OGame.");
                 window.location.href = "index.php?page=ingame&component=galaxy";
                 return;
             }
@@ -605,7 +605,7 @@
                 <span style="color: #3498db; font-weight: bold;">[${item.coords}]</span>
                 <span style="color: #bdc3c7; max-width: 90px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${item.player}">${item.player}</span>
                 <span style="color: ${item.status === 'i_long' ? '#e74c3c' : '#f39c12'}; font-weight: bold;">${item.statusLabel}</span>
-                <span>${item.hasMoon ? '🌕' : '🌑'}</span>
+                <span>${item.hasMoon ? '<b style="color:#f1c40f;">[LUNA]</b>' : '<span style="color:#555;">[-]</span>'}</span>
             </div>
         `).join('');
     }
@@ -613,18 +613,23 @@
     // --- LÓGICA DEL MOTOR DE ESCANEO ---
     function startScanner() {
         saveConfig();
+        const startG = parseInt(document.getElementById('sc-start-g')?.value) || 1;
+        const startS = parseInt(document.getElementById('sc-start-s')?.value) || 1;
+
         isScanning = true;
         isSpyingInProgress = false;
-        isInitialJump = true;
+        currentTargetG = startG;
+        currentTargetS = startS;
 
         const btnToggle = document.getElementById('btn-toggle-scanner');
         if (btnToggle) {
-            btnToggle.textContent = "⏸️ PAUSAR";
+            btnToggle.textContent = "PAUSAR";
             btnToggle.style.background = "#e67e22";
         }
 
-        updateTelemetry("Iniciando radar...", undefined, "Calculando salto...");
-        scheduleNextJump(800);
+        updateTelemetry("Iniciando radar...", `[${startG}:${startS}]`, "Iniciando primer sistema...");
+        // El primer salto debe ser estrictamente en startG:startS
+        scheduleJumpTo(startG, startS, 500);
     }
 
     function pauseScanner(reason = "En pausa") {
@@ -635,7 +640,7 @@
 
         const btnToggle = document.getElementById('btn-toggle-scanner');
         if (btnToggle) {
-            btnToggle.textContent = "▶️ CONTINUAR";
+            btnToggle.textContent = "CONTINUAR";
             btnToggle.style.background = "#27ae60";
         }
 
@@ -647,75 +652,87 @@
         systemsScannedSession = 0;
         const btnToggle = document.getElementById('btn-toggle-scanner');
         if (btnToggle) {
-            btnToggle.textContent = "🚀 INICIAR ESCANEO";
+            btnToggle.textContent = "INICIAR ESCANEO";
             btnToggle.style.background = "#27ae60";
         }
         updateTelemetry(reason, undefined, "---");
     }
 
-    function getNextTargetCoords() {
-        const cur = getCurrentCoords();
-        const startG = parseInt(document.getElementById('sc-start-g')?.value) || 1;
-        const endG = parseInt(document.getElementById('sc-end-g')?.value) || 6;
-        const startS = parseInt(document.getElementById('sc-start-s')?.value) || 1;
-        const endS = parseInt(document.getElementById('sc-end-s')?.value) || 499;
-        const loop = document.getElementById('sc-loop')?.checked || false;
+    function getNextTargetCoords(curG, curS, startG, endG, startS, endS, loop) {
+        const stepG = startG <= endG ? 1 : -1;
+        const stepS = startS <= endS ? 1 : -1;
 
-        // Iniciar estrictamente en startG:startS en el primer salto
-        if (isInitialJump) {
-            isInitialJump = false;
-            return { galaxy: startG, system: startS, finished: false };
+        let nextG = curG;
+        let nextS = curS + stepS;
+
+        // Verificar si se sobrepasa el rango de sistemas para esta galaxia
+        const isSystemExceeded = stepS > 0 ? (nextS > endS) : (nextS < endS);
+
+        if (isSystemExceeded) {
+            nextG += stepG;
+            nextS = startS; // Reiniciar a startS para la siguiente galaxia
         }
 
-        let nextG = cur.galaxy;
-        let nextS = cur.system;
+        // Verificar si se sobrepasa el rango de galaxias
+        const isGalaxyExceeded = stepG > 0 ? (nextG > endG) : (nextG < endG);
 
-        if (nextG < startG) {
-            return { galaxy: startG, system: startS, finished: false };
-        }
-
-        nextS++;
-
-        if (nextS > endS) {
-            nextG++;
-            nextS = 1;
-        }
-
-        if (nextG > endG) {
+        if (isGalaxyExceeded) {
             if (loop) {
                 return { galaxy: startG, system: startS, finished: false };
             } else {
-                return { galaxy: cur.galaxy, system: cur.system, finished: true };
+                return { galaxy: curG, system: curS, finished: true };
             }
         }
 
         return { galaxy: nextG, system: nextS, finished: false };
     }
 
+    function scheduleJumpTo(targetG, targetS, delayMs) {
+        if (!isScanning || isSpyingInProgress) return;
+
+        if (detectCaptcha()) {
+            stopScanner("ALERTA: CAPTCHA DETECTADO");
+            playBeep(880, 500);
+            alert("Aviso: Se ha detectado una verificacion o captcha en OGame. El radar se ha detenido por seguridad.");
+            return;
+        }
+
+        startCountdown(delayMs, targetG, targetS, () => {
+            performJump(targetG, targetS);
+        });
+    }
+
     function scheduleNextJump(overrideDelayMs = null) {
         if (!isScanning || isSpyingInProgress) return;
 
         if (detectCaptcha()) {
-            stopScanner("🚨 CAPTCHA DETECTADO");
+            stopScanner("ALERTA: CAPTCHA DETECTADO");
             playBeep(880, 500);
-            alert("⚠️ Se ha detectado una verificación o captcha en OGame. El radar se ha detenido de inmediato por seguridad.");
+            alert("Aviso: Se ha detectado una verificacion o captcha en OGame. El radar se ha detenido por seguridad.");
             return;
         }
+
+        const startG = parseInt(document.getElementById('sc-start-g')?.value) || 1;
+        const endG = parseInt(document.getElementById('sc-end-g')?.value) || 6;
+        const startS = parseInt(document.getElementById('sc-start-s')?.value) || 1;
+        const endS = parseInt(document.getElementById('sc-end-s')?.value) || 499;
+        const loop = document.getElementById('sc-loop')?.checked || false;
+
+        const next = getNextTargetCoords(currentTargetG, currentTargetS, startG, endG, startS, endS, loop);
+        if (next.finished) {
+            playBeep(523, 250);
+            stopScanner("Rango completado con exito");
+            return;
+        }
+
+        currentTargetG = next.galaxy;
+        currentTargetS = next.system;
 
         const minMs = parseInt(document.getElementById('sc-min-ms')?.value) || 2500;
         const maxMs = parseInt(document.getElementById('sc-max-ms')?.value) || 5000;
         const delayMs = overrideDelayMs !== null ? overrideDelayMs : getRandomDelayMs(minMs, maxMs);
 
-        const next = getNextTargetCoords();
-        if (next.finished) {
-            playBeep(523, 250);
-            stopScanner("✅ Rango completado");
-            return;
-        }
-
-        startCountdown(delayMs, next.galaxy, next.system, () => {
-            performJump(next.galaxy, next.system);
-        });
+        scheduleJumpTo(next.galaxy, next.system, delayMs);
     }
 
     function startCountdown(totalMs, nextG, nextS, onComplete) {
@@ -739,7 +756,7 @@
             }
 
             const secStr = (remainingMs / 1000).toFixed(2);
-            const countdownHtml = `➜ [${nextG}:${nextS}] en <b style="color:#00d2d3;">${secStr}s</b>`;
+            const countdownHtml = `-> [${nextG}:${nextS}] en <b style="color:#00d2d3;">${secStr}s</b>`;
             updateTelemetry("Esperando intervalo", undefined, countdownHtml);
 
             remainingMs -= updateIntervalMs;
@@ -970,9 +987,9 @@
 
                 if (gt.hud && typeof gt.hud.notify === 'function') {
                     const msg = list.length > 0 
-                        ? `🪐 Radar: Sistema [${galaxy}:${system}] sincronizado con Galaxytool (${list.length} planetas)`
-                        : `🪐 Radar: Sistema [${galaxy}:${system}] vacío (0 planetas)`;
-                    gt.hud.notify(msg, 'info', '🌌');
+                        ? `Radar: Sistema [${galaxy}:${system}] sincronizado con Galaxytool (${list.length} planetas)`
+                        : `Radar: Sistema [${galaxy}:${system}] vacio (0 planetas)`;
+                    gt.hud.notify(msg, 'info', '[RADAR]');
                 }
             } catch (err) {
                 console.warn("[Radar Galaxia] Error al enviar a window.Galaxytool:", err);
@@ -1003,7 +1020,7 @@
 
         const badge = document.getElementById('sc-gt-status-badge');
         if (badge) {
-            badge.textContent = `● Sincronizado [${galaxy}:${system}] (${list.length})`;
+            badge.textContent = `[Conectado] [${galaxy}:${system}] (${list.length})`;
             badge.style.color = '#2ecc71';
         }
     }
@@ -1122,7 +1139,7 @@
                 const statusLabel = isLong ? '(I) 28d' : '(i) 7d';
                 const coordsStr = `${curGalaxy}:${curSystem}:${pos}`;
 
-                console.log(`[Radar Galaxia] 🎯 Inactivo detectado en [${coordsStr}]: ${playerName} ${statusLabel} (Luna: ${hasMoon ? 'SÍ' : 'NO'})`);
+                console.log(`[Radar Galaxia] Inactivo detectado en [${coordsStr}]: ${playerName} ${statusLabel} (Luna: ${hasMoon ? 'SÍ' : 'NO'})`);
 
                 recordInactivePlanet({
                     coords: coordsStr,
@@ -1175,7 +1192,7 @@
 
         // Ejecutar cola de espionaje con pausas de 2 a 3 segundos
         if (spyQueue.length > 0) {
-            console.log(`[Radar Galaxia] 📋 Cola de espionaje armada con ${spyQueue.length} acciones.`);
+            console.log(`[Radar Galaxia] Cola de espionaje armada con ${spyQueue.length} acciones.`);
             executeSpyQueue(spyQueue, 0, () => {
                 scheduleNextJump();
             });

@@ -50,20 +50,20 @@ const USER_SCRIPT_FOOTER = `
                     chatBus.queueReport(event.data);
                     console.log("[Galaxytool-Modern] Report queued for In-Game Chat Sync");
                 }
-                if (hud) hud.notify(event.summary, 'success', '📡');
+                if (hud) hud.notify(event.summary, 'success', '[REP]');
             } else if (event.type === 'galaxy') {
                 if (hud && hud.config && !hud.config.syncGalaxy) return;
-                if (hud) hud.notify(event.summary, 'info', '🪐');
+                if (hud) hud.notify(event.summary, 'info', '[GAL]');
             } else if (event.type === 'highscore') {
                 if (hud && hud.config && !hud.config.syncHighscores) return;
-                if (hud) hud.notify(event.summary, 'info', '🏆');
+                if (hud) hud.notify(event.summary, 'info', '[TOP]');
             }
         });
         interceptor.start();
 
         hud = new InGameHUD(storage, chatBus, interceptor);
         chatBus.onReportReceived = (report) => {
-            if (hud) hud.notify('Inteligencia recibida de aliado: [' + report.galaxy + ':' + report.system + ':' + report.position + ']', 'success', '💬');
+            if (hud) hud.notify('Inteligencia recibida de aliado: [' + report.galaxy + ':' + report.system + ':' + report.position + ']', 'success', '[SYNC]');
         };
 
         if (typeof document !== 'undefined') {

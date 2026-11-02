@@ -17,3 +17,4 @@ for (const file of files) {
         console.log(`  Sample:`, corrupted.slice(0, 5));
     }
 }
+

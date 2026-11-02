@@ -73,7 +73,7 @@ export class InGameHUD {
         if (this.chatBus && this.config.passphrase) {
             this.chatBus.passphrase = this.config.passphrase;
         }
-        this.notify('Ajustes guardados correctamente', 'success', '💾');
+        this.notify('Ajustes guardados correctamente', 'success', '[OK]');
     }
 
     renderStyles() {
@@ -411,7 +411,7 @@ export class InGameHUD {
             <div class="gt-status-badge" id="gtBadgeBtn" title="Clic para Configuración | Ctrl+K para Búsqueda">
                 <div class="gt-pulse-dot"></div>
                 <span><strong>GT Modern</strong></span>
-                <span class="gt-badge-action" id="gtBtnOpenSettings" title="Configurar Sincronización y Ver Telemetría">⚙️ Config</span>
+                <span class="gt-badge-action" id="gtBtnOpenSettings" title="Configurar Sincronización y Ver Telemetría">Config</span>
                 <span class="gt-badge-action" id="gtBtnOpenPalette" title="Abrir Command Palette">Ctrl+K</span>
             </div>
 
@@ -424,7 +424,7 @@ export class InGameHUD {
                     </div>
                     <div class="gt-results-list" id="gtResultsList">
                         <div style="padding: 12px 14px; border-bottom: 1px solid #1a2234; display: flex; justify-content: space-between; align-items: center; cursor: pointer;" id="gtPaletteOpenConfigRow">
-                            <span style="color: #38bdf8;">⚙️ <strong>Abrir Ventana de Configuración y Telemetría</strong></span>
+                            <span style="color: #38bdf8;"><strong>[Configuracion] Abrir Ventana de Configuracion y Telemetria</strong></span>
                             <span class="gt-badge-action">Enter</span>
                         </div>
                         <div style="padding: 20px; text-align: center; color: #64748b;">
@@ -439,18 +439,18 @@ export class InGameHUD {
                 <div class="gt-settings-container">
                     <div class="gt-settings-header">
                         <div class="gt-settings-title">
-                            <span>Ω</span>
-                            <span>Galaxytool Modern v6.0 &bull; Configuración & Telemetría</span>
+                            <span>[GT]</span>
+                            <span>Galaxytool Modern v6.0 &bull; Configuracion & Telemetria</span>
                         </div>
-                        <span class="gt-badge-action" id="gtBtnCloseSettings" style="cursor: pointer;">✕ Cerrar</span>
+                        <span class="gt-badge-action" id="gtBtnCloseSettings" style="cursor: pointer;">[X] Cerrar</span>
                     </div>
 
                     <div class="gt-settings-body">
                         <!-- Telemetry Status Bar -->
                         <div class="gt-section-card">
                             <div class="gt-section-title">
-                                <span>📡 Telemetría en Vivo & Base Local (IndexedDB)</span>
-                                <span style="font-size: 10px; color: #10b981;">● En Escucha Activa</span>
+                                <span>Telemetria en Vivo & Base Local (IndexedDB)</span>
+                                <span style="font-size: 10px; color: #10b981;">[Activo] En Escucha</span>
                             </div>
                             <div class="gt-telemetry-grid">
                                 <div class="gt-telemetry-box">
@@ -471,10 +471,10 @@ export class InGameHUD {
                         <!-- Alliance Passphrase -->
                         <div class="gt-section-card">
                             <div class="gt-section-title">
-                                <span>🔐 Cifrado End-to-End de Alianza (AES-256-GCM)</span>
+                                <span>Cifrado End-to-End de Alianza (AES-256-GCM)</span>
                             </div>
                             <div class="gt-form-group">
-                                <label class="gt-form-label">Frase de Paso de Alianza (Debe ser idéntica entre tus compañeros):</label>
+                                <label class="gt-form-label">Frase de Paso de Alianza (Debe ser identica entre tus companeros):</label>
                                 <input type="password" class="gt-form-input" id="gtInputPassphrase" value="${this.config.passphrase}" placeholder="Clave secreta de alianza" />
                             </div>
                         </div>
@@ -482,39 +482,39 @@ export class InGameHUD {
                         <!-- Sync Options Toggles -->
                         <div class="gt-section-card">
                             <div class="gt-section-title">
-                                <span>⚡ Módulos de Captura & Sincronización Automática</span>
+                                <span>Modulos de Captura & Sincronizacion Automatica</span>
                             </div>
                             <div class="gt-toggle-row">
                                 <div class="gt-toggle-info">
-                                    <strong>🪐 Vista de Galaxia</strong>
-                                    <span class="gt-toggle-sub">Guarda planetas, lunas, escombros y jugadores al navegar el mapa galáctico.</span>
+                                    <strong>Vista de Galaxia</strong>
+                                    <span class="gt-toggle-sub">Guarda planetas, lunas, escombros y jugadores al navegar el mapa galactico.</span>
                                 </div>
                                 <input type="checkbox" id="gtChkSyncGalaxy" ${this.config.syncGalaxy ? 'checked' : ''} />
                             </div>
                             <div class="gt-toggle-row">
                                 <div class="gt-toggle-info">
-                                    <strong>📡 Reportes de Espionaje</strong>
+                                    <strong>Reportes de Espionaje</strong>
                                     <span class="gt-toggle-sub">Captura recursos y las 17 naves modernas al abrir mensajes de espionaje.</span>
                                 </div>
                                 <input type="checkbox" id="gtChkSyncReports" ${this.config.syncReports ? 'checked' : ''} />
                             </div>
                             <div class="gt-toggle-row">
                                 <div class="gt-toggle-info">
-                                    <strong>🏆 Tabla de Puntajes / Clasificación</strong>
+                                    <strong>Tabla de Puntajes / Clasificacion</strong>
                                     <span class="gt-toggle-sub">Actualiza puntos y alianzas al consultar las clasificaciones in-game.</span>
                                 </div>
                                 <input type="checkbox" id="gtChkSyncHighscores" ${this.config.syncHighscores ? 'checked' : ''} />
                             </div>
                             <div class="gt-toggle-row">
                                 <div class="gt-toggle-info">
-                                    <strong>💬 Sincronización por Chat In-Game (Steganography)</strong>
-                                    <span class="gt-toggle-sub">Transmite inteligencia de forma invisible a tus aliados vía chat de alianza.</span>
+                                    <strong>Sincronizacion por Chat In-Game (Steganography)</strong>
+                                    <span class="gt-toggle-sub">Transmite inteligencia de forma invisible a tus aliados via chat de alianza.</span>
                                 </div>
                                 <input type="checkbox" id="gtChkSyncChat" ${this.config.syncChat ? 'checked' : ''} />
                             </div>
                             <div class="gt-toggle-row">
                                 <div class="gt-toggle-info">
-                                    <strong>🔔 Notificaciones en Pantalla (Toasts)</strong>
+                                    <strong>Notificaciones en Pantalla (Toasts)</strong>
                                     <span class="gt-toggle-sub">Muestra avisos visuales flotantes al capturar galaxias, reportes o puntajes.</span>
                                 </div>
                                 <input type="checkbox" id="gtChkShowToasts" ${this.config.showToasts ? 'checked' : ''} />
@@ -524,7 +524,7 @@ export class InGameHUD {
                         <!-- Live Activity Feed -->
                         <div class="gt-section-card">
                             <div class="gt-section-title">
-                                <span>📋 Registro de Actividad Reciente</span>
+                                <span>Registro de Actividad Reciente</span>
                             </div>
                             <div class="gt-log-list" id="gtLogContainer">
                                 <div class="gt-log-entry">
@@ -537,10 +537,10 @@ export class InGameHUD {
 
                     <div class="gt-settings-footer">
                         <div style="display: flex; gap: 8px;">
-                            <button class="gt-btn gt-btn-emerald" id="gtBtnSaveSettings">💾 Guardar Cambios</button>
-                            <button class="gt-btn gt-btn-secondary" id="gtBtnTestPing">🧪 Probar Envío</button>
+                            <button class="gt-btn gt-btn-emerald" id="gtBtnSaveSettings">Guardar Cambios</button>
+                            <button class="gt-btn gt-btn-secondary" id="gtBtnTestPing">Probar Envio</button>
                         </div>
-                        <button class="gt-btn" id="gtBtnOpenDashboard">🌐 Abrir Dashboard PWA</button>
+                        <button class="gt-btn" id="gtBtnOpenDashboard">Abrir Dashboard PWA</button>
                     </div>
                 </div>
             </div>
@@ -620,9 +620,9 @@ export class InGameHUD {
                     timestamp: Math.floor(Date.now() / 1000)
                 };
                 this.chatBus.queueReport(dummyReport);
-                this.notify('Paquete de prueba encriptado y puesto en cola de chat', 'success', '🚀');
+                this.notify('Paquete de prueba encriptado y puesto en cola de chat', 'success', '[OK]');
             } else {
-                this.notify('Bus de chat no inicializado aún', 'warn', '⚠️');
+                this.notify('Bus de chat no inicializado aún', 'warn', '[AVISO]');
             }
         });
 
@@ -646,7 +646,7 @@ export class InGameHUD {
         });
     }
 
-    notify(message, type = 'info', icon = '📡') {
+    notify(message, type = 'info', icon = '[GT]') {
         if (!this.config.showToasts || typeof document === 'undefined' || !this.shadow) return;
 
         const container = this.shadow.querySelector('#gtToastContainer');
@@ -735,7 +735,7 @@ export class InGameHUD {
             } else {
                 logContainer.innerHTML = logs.slice(0, 15).map(l => {
                     const timeStr = new Date(l.timestamp).toLocaleTimeString();
-                    const icon = l.type === 'galaxy' ? '🪐' : (l.type === 'report' ? '📡' : (l.type === 'highscore' ? '🏆' : '⚙️'));
+                    const icon = l.type === 'galaxy' ? '[GAL]' : (l.type === 'report' ? '[REP]' : (l.type === 'highscore' ? '[TOP]' : '[SYS]'));
                     return `
                         <div class="gt-log-entry">
                             <span>${icon}</span>
@@ -755,7 +755,7 @@ export class InGameHUD {
         if (q.length === 0) {
             resultsContainer.innerHTML = `
                 <div style="padding: 12px 14px; border-bottom: 1px solid #1a2234; display: flex; justify-content: space-between; align-items: center; cursor: pointer;" id="gtPaletteOpenConfigRow">
-                    <span style="color: #38bdf8;">⚙️ <strong>Abrir Ventana de Configuración y Telemetría</strong></span>
+                    <span style="color: #38bdf8;"><strong>[Configuracion] Abrir Ventana de Configuracion y Telemetria</strong></span>
                     <span class="gt-badge-action">Enter</span>
                 </div>
                 <div style="padding: 20px; text-align: center; color: #64748b;">
@@ -848,10 +848,10 @@ export class InGameHUD {
         const banner = this.shadow.querySelector('#gtFleetBanner');
         banner.style.display = 'flex';
         banner.innerHTML = `
-            <span>🎯 <strong>Botín 50%:</strong> ${(plunder.plunderable.total / 1000).toFixed(0)}k | <strong>Req:</strong> ${plunder.shipsNeeded.SC} SC / ${plunder.shipsNeeded.LC} LC / ${plunder.shipsNeeded.PATH} PATH</span>
+            <span><strong>Botin 50%:</strong> ${(plunder.plunderable.total / 1000).toFixed(0)}k | <strong>Req:</strong> ${plunder.shipsNeeded.SC} SC / ${plunder.shipsNeeded.LC} LC / ${plunder.shipsNeeded.PATH} PATH</span>
             <button class="gt-btn" id="gtAutoFillSC">Cargar ${plunder.shipsNeeded.SC} SC</button>
             <button class="gt-btn" id="gtAutoFillLC">Cargar ${plunder.shipsNeeded.LC} LC</button>
-            <button class="gt-btn gt-btn-secondary" id="gtCloseBanner">✕</button>
+            <button class="gt-btn gt-btn-secondary" id="gtCloseBanner">[X]</button>
         `;
 
         this.shadow.querySelector('#gtAutoFillSC')?.addEventListener('click', () => this.fillShips(202, plunder.shipsNeeded.SC));
