@@ -162,6 +162,82 @@ export class OGameStorageEngine {
         });
     }
 
+    async deletePlanet(galaxy, system, position, isMoon = false) {
+        const coordKey = OGameStorageEngine.makeCoordKey(galaxy, system, position, isMoon);
+        if (!this.isBrowser) {
+            this.memoryStore.planets.delete(coordKey);
+            return true;
+        }
+
+        return new Promise((resolve, reject) => {
+            const tx = this.db.transaction('planets', 'readwrite');
+            const store = tx.objectStore('planets');
+            const req = store.delete(coordKey);
+            req.onsuccess = () => resolve(true);
+            req.onerror = () => reject(req.error);
+        });
+    }
+
+    /**
+     * Synchronizes an entire solar system with the latest live view.
+     * Deletes any celestial body in (galaxy, system) that is no longer present.
+     * Inserts/updates the remaining active bodies.
+     */
+    async syncSolarSystem(galaxy, system, newPlanets = []) {
+        const validPlanets = Array.isArray(newPlanets) ? newPlanets : [];
+        const incomingKeys = new Set(
+            validPlanets.map(p => OGameStorageEngine.makeCoordKey(galaxy, system, p.position, p.isMoon))
+        );
+
+        if (!this.isBrowser) {
+            // Memory store mode
+            for (const [key, p] of this.memoryStore.planets.entries()) {
+                if (p.galaxy === galaxy && p.system === system && !incomingKeys.has(key)) {
+                    this.memoryStore.planets.delete(key);
+                }
+            }
+            for (const p of validPlanets) {
+                await this.savePlanet({ ...p, galaxy, system });
+            }
+            return this.getSystem(galaxy, system);
+        }
+
+        return new Promise((resolve, reject) => {
+            const tx = this.db.transaction('planets', 'readwrite');
+            const store = tx.objectStore('planets');
+            const index = store.index('system');
+            const req = index.getAll(IDBKeyRange.only([galaxy, system]));
+
+            req.onsuccess = () => {
+                const existing = req.result || [];
+                // Delete obsolete planets that are no longer in this solar system
+                for (const oldBody of existing) {
+                    if (!incomingKeys.has(oldBody.coordKey)) {
+                        store.delete(oldBody.coordKey);
+                    }
+                }
+
+                // Put current active celestial bodies
+                for (const p of validPlanets) {
+                    const coordKey = OGameStorageEngine.makeCoordKey(galaxy, system, p.position, p.isMoon);
+                    const record = {
+                        ...p,
+                        galaxy,
+                        system,
+                        coordKey,
+                        updatedAt: p.updatedAt || Date.now()
+                    };
+                    store.put(record);
+                }
+
+                tx.oncomplete = () => {
+                    this.getSystem(galaxy, system).then(resolve).catch(reject);
+                };
+            };
+            req.onerror = () => reject(req.error);
+        });
+    }
+
     async getAllPlanets() {
         if (!this.isBrowser) {
             return Array.from(this.memoryStore.planets.values());

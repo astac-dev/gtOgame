@@ -824,7 +824,7 @@
         return (metal > 0 || crystal > 0) ? { metal, crystal } : null;
     }
 
-    function saveToIndexedDBDirectly(planets) {
+    function saveToIndexedDBDirectly(galaxy, system, planets) {
         try {
             if (typeof window.indexedDB === 'undefined') return;
             const req = window.indexedDB.open('OGameGalaxytoolDB', 1);
@@ -837,7 +837,24 @@
                 const pStore = tx.objectStore('planets');
                 const uStore = db.objectStoreNames.contains('players') ? tx.objectStore('players') : null;
 
-                for (const p of planets) {
+                const incomingKeys = new Set(
+                    (planets || []).map(p => `${galaxy}:${system}:${p.position}:${p.isMoon ? 1 : 0}`)
+                );
+
+                if (pStore.indexNames.contains('system')) {
+                    const idx = pStore.index('system');
+                    const getReq = idx.getAll(IDBKeyRange.only([galaxy, system]));
+                    getReq.onsuccess = () => {
+                        const existing = getReq.result || [];
+                        for (const old of existing) {
+                            if (!incomingKeys.has(old.coordKey)) {
+                                pStore.delete(old.coordKey);
+                            }
+                        }
+                    };
+                }
+
+                for (const p of (planets || [])) {
                     const coordKey = `${p.galaxy}:${p.system}:${p.position}:${p.isMoon ? 1 : 0}`;
                     pStore.put({ ...p, coordKey });
                     if (uStore && p.playerId) {
@@ -856,15 +873,21 @@
     }
 
     async function sendToGalaxytoolSolution(galaxy, system, planets) {
-        if (!planets || planets.length === 0) return;
-
+        const list = Array.isArray(planets) ? planets : [];
         const gt = win.Galaxytool || (typeof unsafeWindow !== 'undefined' ? unsafeWindow.Galaxytool : null);
 
         if (gt && gt.storage) {
             try {
-                for (const p of planets) {
-                    await gt.storage.savePlanet(p);
-                    if (p.playerId) {
+                if (typeof gt.storage.syncSolarSystem === 'function') {
+                    await gt.storage.syncSolarSystem(galaxy, system, list);
+                } else {
+                    for (const p of list) {
+                        await gt.storage.savePlanet(p);
+                    }
+                }
+
+                for (const p of list) {
+                    if (p.playerId && typeof gt.storage.savePlayer === 'function') {
                         await gt.storage.savePlayer({
                             id: p.playerId,
                             name: p.playerName,
@@ -877,22 +900,25 @@
                 }
 
                 if (gt.interceptor && typeof gt.interceptor.logEvent === 'function') {
-                    gt.interceptor.logEvent('galaxy', `Radar GalExpl: Sistema ${galaxy}:${system} sincronizado (${planets.length} cuerpos celestes)`, { galaxy, system, count: planets.length });
+                    gt.interceptor.logEvent('galaxy', `Radar GalExpl: Sistema ${galaxy}:${system} sincronizado (${list.length} cuerpos celestes)`, { galaxy, system, count: list.length });
                 }
 
                 if (gt.hud && typeof gt.hud.notify === 'function') {
-                    gt.hud.notify(`🪐 Radar: Sistema [${galaxy}:${system}] sincronizado con Galaxytool (${planets.length} planetas)`, 'info', '🌌');
+                    const msg = list.length > 0 
+                        ? `🪐 Radar: Sistema [${galaxy}:${system}] sincronizado con Galaxytool (${list.length} planetas)`
+                        : `🪐 Radar: Sistema [${galaxy}:${system}] vacío (0 planetas)`;
+                    gt.hud.notify(msg, 'info', '🌌');
                 }
             } catch (err) {
                 console.warn("[Radar Galaxia] Error al enviar a window.Galaxytool:", err);
             }
         }
 
-        saveToIndexedDBDirectly(planets);
+        saveToIndexedDBDirectly(galaxy, system, list);
 
         // 3. Enviar a API Bridge local (http://localhost:8080/api/sync.php)
         try {
-            const payload = JSON.stringify({ type: 'galaxy', galaxy, system, planets });
+            const payload = JSON.stringify({ type: 'galaxy', galaxy, system, planets: list });
             if (typeof GM_xmlhttpRequest === 'function') {
                 GM_xmlhttpRequest({
                     method: 'POST',
@@ -912,7 +938,7 @@
 
         const badge = document.getElementById('sc-gt-status-badge');
         if (badge) {
-            badge.textContent = `● Sincronizado [${galaxy}:${system}]`;
+            badge.textContent = `● Sincronizado [${galaxy}:${system}] (${list.length})`;
             badge.style.color = '#2ecc71';
         }
     }
@@ -1056,7 +1082,7 @@
         }
 
         // Sincronizar todos los datos con la solución Galaxytool Modern
-        if (syncGT && systemPlanets.length > 0) {
+        if (syncGT) {
             sendToGalaxytoolSolution(curGalaxy, curSystem, systemPlanets);
         }
 

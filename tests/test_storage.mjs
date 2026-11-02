@@ -113,6 +113,29 @@ async function runTests() {
     assert(key === 'SecretAllianceKey_2026', "Retrieved alliance passphrase");
     assert(autoSync === true, "Retrieved boolean auto_sync setting");
 
+    // --- 5. System Synchronization and Stale Planet Purging ---
+    console.log("\n--- 5. Testing Solar System Sync & Stale Planet Purging ---");
+    // System 1:154 currently has 3 celestial bodies (pos 1, pos 3 planet, pos 3 moon).
+    // Now simulate re-visiting the system: pos 3 was deleted, only pos 1 remains.
+    await storage.syncSolarSystem(1, 154, [
+        {
+            galaxy: 1, system: 154, position: 1, isMoon: false,
+            name: "Planeta Principal", playerId: 1002, playerName: "ObjetivoInactivo"
+        }
+    ]);
+    const updatedSystem = await storage.getSystem(1, 154);
+    assert(updatedSystem.length === 1, "System successfully purged stale planets down to 1 remaining planet");
+    assert(updatedSystem[0].position === 1, "Remaining planet is position 1");
+    const stalePlanet = await storage.getPlanet(1, 154, 3, false);
+    assert(stalePlanet === null, "Deleted planet at position 3 is completely removed");
+    const staleMoon = await storage.getPlanet(1, 154, 3, true);
+    assert(staleMoon === null, "Deleted moon at position 3 is completely removed");
+
+    // Test purging entire system when re-scanned as completely empty (0 planets)
+    await storage.syncSolarSystem(1, 154, []);
+    const emptySystem = await storage.getSystem(1, 154);
+    assert(emptySystem.length === 0, "System successfully cleared all records when rescanned as empty");
+
     // --- SUMMARY ---
     console.log("\n==========================================================");
     console.log(`RESULTS: ${passed} PASSED, ${failed} FAILED`);

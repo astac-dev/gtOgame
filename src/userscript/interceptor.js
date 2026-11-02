@@ -108,7 +108,7 @@ export class NetworkInterceptor {
 
         const checkDOM = () => {
             const parsed = GalaxyParser.parseFromLiveDOM(document);
-            if (parsed && parsed.planets && parsed.planets.length > 0) {
+            if (parsed && parsed.galaxy && parsed.system) {
                 const coordKey = `${parsed.galaxy}:${parsed.system}`;
                 if (this.lastParsedCoord !== coordKey) {
                     this.lastParsedCoord = coordKey;
@@ -136,13 +136,13 @@ export class NetworkInterceptor {
 
     async handleGalaxyResponse(content) {
         let parsed = GalaxyParser.parse(content);
-        if (!parsed || !parsed.planets || parsed.planets.length === 0) {
+        if (!parsed || !parsed.galaxy || !parsed.system) {
             // Fallback to reading the live DOM if snippet was minimal
             if (typeof document !== 'undefined') {
                 parsed = GalaxyParser.parseFromLiveDOM(document);
             }
         }
-        if (!parsed || !parsed.planets || parsed.planets.length === 0) return;
+        if (!parsed || !parsed.galaxy || !parsed.system) return;
 
         const coordKey = `${parsed.galaxy}:${parsed.system}`;
         this.lastParsedCoord = coordKey;
@@ -150,30 +150,46 @@ export class NetworkInterceptor {
     }
 
     async processGalaxyData(parsed) {
-        for (const planet of parsed.planets) {
-            await this.storage.savePlanet(planet);
-            if (planet.playerId) {
-                await this.storage.savePlayer({
-                    id: planet.playerId,
-                    name: planet.playerName,
-                    allianceId: planet.allianceId,
-                    allianceTag: planet.allianceTag,
-                    status: planet.status,
-                    updatedAt: Date.now()
-                });
+        const planets = parsed.planets || [];
+
+        // Synchronize entire solar system: deletes any planets in this system that were deleted or abandoned
+        if (this.storage && typeof this.storage.syncSolarSystem === 'function') {
+            await this.storage.syncSolarSystem(parsed.galaxy, parsed.system, planets);
+        } else if (this.storage) {
+            for (const planet of planets) {
+                await this.storage.savePlanet(planet);
             }
         }
 
-        const summary = `Sistema ${parsed.galaxy}:${parsed.system} guardado (${parsed.planets.length} cuerpos celestes)`;
-        console.log(`[Galaxytool-Modern] ${summary}`);
-        this.logEvent('galaxy', summary, { galaxy: parsed.galaxy, system: parsed.system, count: parsed.planets.length });
+        // Update player info for populated slots
+        if (this.storage && typeof this.storage.savePlayer === 'function') {
+            for (const planet of planets) {
+                if (planet.playerId) {
+                    await this.storage.savePlayer({
+                        id: planet.playerId,
+                        name: planet.playerName,
+                        allianceId: planet.allianceId,
+                        allianceTag: planet.allianceTag,
+                        status: planet.status,
+                        updatedAt: Date.now()
+                    });
+                }
+            }
+        }
 
-        // Sync in background to local API bridge for Standalone Dashboard
+        const summary = planets.length > 0 
+            ? `Sistema ${parsed.galaxy}:${parsed.system} guardado (${planets.length} cuerpos celestes)`
+            : `Sistema ${parsed.galaxy}:${parsed.system} vacío (0 planetas activos)`;
+
+        console.log(`[Galaxytool-Modern] ${summary}`);
+        this.logEvent('galaxy', summary, { galaxy: parsed.galaxy, system: parsed.system, count: planets.length });
+
+        // Sync in background to local API bridge for Standalone Dashboard (purges old planets on backend)
         this.syncToLocalBackend({
             type: 'galaxy',
             galaxy: parsed.galaxy,
             system: parsed.system,
-            planets: parsed.planets
+            planets: planets
         });
 
         if (this.onDataCaptured) {

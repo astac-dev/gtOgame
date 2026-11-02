@@ -670,6 +670,82 @@ class OGameStorageEngine {
         });
     }
 
+    async deletePlanet(galaxy, system, position, isMoon = false) {
+        const coordKey = OGameStorageEngine.makeCoordKey(galaxy, system, position, isMoon);
+        if (!this.isBrowser) {
+            this.memoryStore.planets.delete(coordKey);
+            return true;
+        }
+
+        return new Promise((resolve, reject) => {
+            const tx = this.db.transaction('planets', 'readwrite');
+            const store = tx.objectStore('planets');
+            const req = store.delete(coordKey);
+            req.onsuccess = () => resolve(true);
+            req.onerror = () => reject(req.error);
+        });
+    }
+
+    /**
+     * Synchronizes an entire solar system with the latest live view.
+     * Deletes any celestial body in (galaxy, system) that is no longer present.
+     * Inserts/updates the remaining active bodies.
+     */
+    async syncSolarSystem(galaxy, system, newPlanets = []) {
+        const validPlanets = Array.isArray(newPlanets) ? newPlanets : [];
+        const incomingKeys = new Set(
+            validPlanets.map(p => OGameStorageEngine.makeCoordKey(galaxy, system, p.position, p.isMoon))
+        );
+
+        if (!this.isBrowser) {
+            // Memory store mode
+            for (const [key, p] of this.memoryStore.planets.entries()) {
+                if (p.galaxy === galaxy && p.system === system && !incomingKeys.has(key)) {
+                    this.memoryStore.planets.delete(key);
+                }
+            }
+            for (const p of validPlanets) {
+                await this.savePlanet({ ...p, galaxy, system });
+            }
+            return this.getSystem(galaxy, system);
+        }
+
+        return new Promise((resolve, reject) => {
+            const tx = this.db.transaction('planets', 'readwrite');
+            const store = tx.objectStore('planets');
+            const index = store.index('system');
+            const req = index.getAll(IDBKeyRange.only([galaxy, system]));
+
+            req.onsuccess = () => {
+                const existing = req.result || [];
+                // Delete obsolete planets that are no longer in this solar system
+                for (const oldBody of existing) {
+                    if (!incomingKeys.has(oldBody.coordKey)) {
+                        store.delete(oldBody.coordKey);
+                    }
+                }
+
+                // Put current active celestial bodies
+                for (const p of validPlanets) {
+                    const coordKey = OGameStorageEngine.makeCoordKey(galaxy, system, p.position, p.isMoon);
+                    const record = {
+                        ...p,
+                        galaxy,
+                        system,
+                        coordKey,
+                        updatedAt: p.updatedAt || Date.now()
+                    };
+                    store.put(record);
+                }
+
+                tx.oncomplete = () => {
+                    this.getSystem(galaxy, system).then(resolve).catch(reject);
+                };
+            };
+            req.onerror = () => reject(req.error);
+        });
+    }
+
     async getAllPlanets() {
         if (!this.isBrowser) {
             return Array.from(this.memoryStore.planets.values());
@@ -1870,7 +1946,7 @@ class NetworkInterceptor {
 
         const checkDOM = () => {
             const parsed = GalaxyParser.parseFromLiveDOM(document);
-            if (parsed && parsed.planets && parsed.planets.length > 0) {
+            if (parsed && parsed.galaxy && parsed.system) {
                 const coordKey = `${parsed.galaxy}:${parsed.system}`;
                 if (this.lastParsedCoord !== coordKey) {
                     this.lastParsedCoord = coordKey;
@@ -1898,13 +1974,13 @@ class NetworkInterceptor {
 
     async handleGalaxyResponse(content) {
         let parsed = GalaxyParser.parse(content);
-        if (!parsed || !parsed.planets || parsed.planets.length === 0) {
+        if (!parsed || !parsed.galaxy || !parsed.system) {
             // Fallback to reading the live DOM if snippet was minimal
             if (typeof document !== 'undefined') {
                 parsed = GalaxyParser.parseFromLiveDOM(document);
             }
         }
-        if (!parsed || !parsed.planets || parsed.planets.length === 0) return;
+        if (!parsed || !parsed.galaxy || !parsed.system) return;
 
         const coordKey = `${parsed.galaxy}:${parsed.system}`;
         this.lastParsedCoord = coordKey;
@@ -1912,30 +1988,46 @@ class NetworkInterceptor {
     }
 
     async processGalaxyData(parsed) {
-        for (const planet of parsed.planets) {
-            await this.storage.savePlanet(planet);
-            if (planet.playerId) {
-                await this.storage.savePlayer({
-                    id: planet.playerId,
-                    name: planet.playerName,
-                    allianceId: planet.allianceId,
-                    allianceTag: planet.allianceTag,
-                    status: planet.status,
-                    updatedAt: Date.now()
-                });
+        const planets = parsed.planets || [];
+
+        // Synchronize entire solar system: deletes any planets in this system that were deleted or abandoned
+        if (this.storage && typeof this.storage.syncSolarSystem === 'function') {
+            await this.storage.syncSolarSystem(parsed.galaxy, parsed.system, planets);
+        } else if (this.storage) {
+            for (const planet of planets) {
+                await this.storage.savePlanet(planet);
             }
         }
 
-        const summary = `Sistema ${parsed.galaxy}:${parsed.system} guardado (${parsed.planets.length} cuerpos celestes)`;
-        console.log(`[Galaxytool-Modern] ${summary}`);
-        this.logEvent('galaxy', summary, { galaxy: parsed.galaxy, system: parsed.system, count: parsed.planets.length });
+        // Update player info for populated slots
+        if (this.storage && typeof this.storage.savePlayer === 'function') {
+            for (const planet of planets) {
+                if (planet.playerId) {
+                    await this.storage.savePlayer({
+                        id: planet.playerId,
+                        name: planet.playerName,
+                        allianceId: planet.allianceId,
+                        allianceTag: planet.allianceTag,
+                        status: planet.status,
+                        updatedAt: Date.now()
+                    });
+                }
+            }
+        }
 
-        // Sync in background to local API bridge for Standalone Dashboard
+        const summary = planets.length > 0 
+            ? `Sistema ${parsed.galaxy}:${parsed.system} guardado (${planets.length} cuerpos celestes)`
+            : `Sistema ${parsed.galaxy}:${parsed.system} vacío (0 planetas activos)`;
+
+        console.log(`[Galaxytool-Modern] ${summary}`);
+        this.logEvent('galaxy', summary, { galaxy: parsed.galaxy, system: parsed.system, count: planets.length });
+
+        // Sync in background to local API bridge for Standalone Dashboard (purges old planets on backend)
         this.syncToLocalBackend({
             type: 'galaxy',
             galaxy: parsed.galaxy,
             system: parsed.system,
-            planets: parsed.planets
+            planets: planets
         });
 
         if (this.onDataCaptured) {

@@ -322,6 +322,42 @@ async function runTests() {
     assert(getAllRes.data.planets.some(p => p.coordKey === '2:45:1:0'), 'System 2:45:1:0 must be present in global store');
     console.log(`✓ Global GET verified (${getAllRes.data.totalPlanets} total planets currently in cache).`);
 
+    // TEST 5: System Re-visit with Deleted/Abandoned Planets (Slot 2 removed)
+    console.log('[Test 5] Testing system re-visit with deleted planet (purging stale slot 2)...');
+    const updatePayload = {
+        type: 'galaxy',
+        galaxy: 2,
+        system: 45,
+        planets: [
+            p1 // Only slot 1 remains; slot 2 and moon have been removed/deleted
+        ]
+    };
+    const updateRes = await postJSON('http://localhost:8080/api/sync.php', updatePayload);
+    assert.strictEqual(updateRes.status, 200);
+    assert.strictEqual(updateRes.data.saved, 1, 'Only 1 planet should be saved now');
+
+    const getResUpdated = await getJSON('http://localhost:8080/api/sync.php?g=2&s=45');
+    assert.strictEqual(getResUpdated.data.planets.length, 1, 'Should only contain 1 planet now');
+    assert.strictEqual(getResUpdated.data.planets[0].position, 1, 'Only slot 1 should exist');
+    const staleSlot2 = getResUpdated.data.planets.find(p => p.position === 2);
+    assert.strictEqual(staleSlot2, undefined, 'Stale deleted planet at position 2 must be purged');
+    console.log('✓ Successfully purged deleted planet from cache on re-scan.');
+
+    // TEST 6: System Re-visit completely empty (0 planets)
+    console.log('[Test 6] Testing system re-visit when system is completely vacant...');
+    const emptyPayload = {
+        type: 'galaxy',
+        galaxy: 2,
+        system: 45,
+        planets: []
+    };
+    const emptyRes = await postJSON('http://localhost:8080/api/sync.php', emptyPayload);
+    assert.strictEqual(emptyRes.status, 200);
+
+    const getResEmpty = await getJSON('http://localhost:8080/api/sync.php?g=2&s=45');
+    assert.strictEqual(getResEmpty.data.planets.length, 0, 'Vacant system should return 0 planets');
+    console.log('✓ Successfully purged entire solar system when rescanned as empty.');
+
     console.log('\n--- ALL GALAXY SYNC BRIDGE TESTS PASSED (100%) ---');
     process.exit(0);
 }

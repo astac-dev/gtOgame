@@ -105,8 +105,30 @@ class DashboardApp {
             if (!res.ok) return;
             const data = await res.json();
             if (data.planets && Array.isArray(data.planets)) {
-                for (const p of data.planets) {
-                    await this.savePlanet(p);
+                const remoteKeys = new Set(data.planets.map(p => p.coordKey || `${p.galaxy}:${p.system}:${p.position}:${p.isMoon ? 1 : 0}`));
+
+                if (this.db) {
+                    const tx = this.db.transaction('planets', 'readwrite');
+                    const store = tx.objectStore('planets');
+                    const allReq = store.getAll();
+                    allReq.onsuccess = () => {
+                        const localPlanets = allReq.result || [];
+                        for (const lp of localPlanets) {
+                            if (!remoteKeys.has(lp.coordKey)) {
+                                store.delete(lp.coordKey);
+                            }
+                        }
+                        for (const p of data.planets) {
+                            const coordKey = p.coordKey || `${p.galaxy}:${p.system}:${p.position}:${p.isMoon ? 1 : 0}`;
+                            store.put({ ...p, coordKey });
+                        }
+                    };
+                } else {
+                    this.memoryStore.planets.clear();
+                    for (const p of data.planets) {
+                        const coordKey = p.coordKey || `${p.galaxy}:${p.system}:${p.position}:${p.isMoon ? 1 : 0}`;
+                        this.memoryStore.planets.set(coordKey, { ...p, coordKey });
+                    }
                 }
             }
             if (data.reports && Array.isArray(data.reports)) {
@@ -140,15 +162,43 @@ class DashboardApp {
     }
 
     async getSystemPlanets(galaxy, system) {
-        // First try fetching latest from API sync bridge for immediate real-time view
+        // Fetch latest system state from API sync bridge for immediate real-time view
         try {
             const res = await fetch(`../api/sync.php?g=${galaxy}&s=${system}`);
             if (res.ok) {
                 const data = await res.json();
-                if (data.planets && Array.isArray(data.planets) && data.planets.length > 0) {
-                    for (const p of data.planets) {
-                        await this.savePlanet(p);
+                if (data.planets && Array.isArray(data.planets)) {
+                    const incomingKeys = new Set(data.planets.map(p => p.coordKey || `${galaxy}:${system}:${p.position}:${p.isMoon ? 1 : 0}`));
+
+                    if (this.db) {
+                        const tx = this.db.transaction('planets', 'readwrite');
+                        const store = tx.objectStore('planets');
+                        const idx = store.index('system');
+                        const req = idx.getAll(IDBKeyRange.only([galaxy, system]));
+                        req.onsuccess = () => {
+                            const existing = req.result || [];
+                            for (const old of existing) {
+                                if (!incomingKeys.has(old.coordKey)) {
+                                    store.delete(old.coordKey);
+                                }
+                            }
+                            for (const p of data.planets) {
+                                const coordKey = p.coordKey || `${galaxy}:${system}:${p.position}:${p.isMoon ? 1 : 0}`;
+                                store.put({ ...p, coordKey });
+                            }
+                        };
+                    } else {
+                        for (const [key, p] of this.memoryStore.planets.entries()) {
+                            if (p.galaxy === galaxy && p.system === system && !incomingKeys.has(key)) {
+                                this.memoryStore.planets.delete(key);
+                            }
+                        }
+                        for (const p of data.planets) {
+                            const coordKey = p.coordKey || `${galaxy}:${system}:${p.position}:${p.isMoon ? 1 : 0}`;
+                            this.memoryStore.planets.set(coordKey, { ...p, coordKey });
+                        }
                     }
+
                     return data.planets.sort((a, b) => a.position - b.position);
                 }
             }

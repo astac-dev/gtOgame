@@ -42,13 +42,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $savedCount = 0;
 
     // Handle Galaxy payload
-    if (isset($payload['type']) && $payload['type'] === 'galaxy' && !empty($payload['planets'])) {
-        foreach ($payload['planets'] as $p) {
-            $key = $p['galaxy'] . ':' . $p['system'] . ':' . $p['position'] . ':' . (!empty($p['isMoon']) ? 1 : 0);
-            $p['coordKey'] = $key;
-            $p['updatedAt'] = !empty($p['updatedAt']) ? $p['updatedAt'] : round(microtime(true) * 1000);
-            $planets[$key] = $p;
-            $savedCount++;
+    if (isset($payload['type']) && $payload['type'] === 'galaxy') {
+        $g = isset($payload['galaxy']) ? (int)$payload['galaxy'] : null;
+        $s = isset($payload['system']) ? (int)$payload['system'] : null;
+
+        // 1. Purge all existing records for this specific solar system to remove deleted/vacated planets
+        if ($g !== null && $s !== null) {
+            foreach ($planets as $key => $p) {
+                if ((int)$p['galaxy'] === $g && (int)$p['system'] === $s) {
+                    unset($planets[$key]);
+                }
+            }
+        }
+
+        // 2. Insert updated celestial bodies (if any)
+        if (!empty($payload['planets']) && is_array($payload['planets'])) {
+            foreach ($payload['planets'] as $p) {
+                $key = $p['galaxy'] . ':' . $p['system'] . ':' . $p['position'] . ':' . (!empty($p['isMoon']) ? 1 : 0);
+                $p['coordKey'] = $key;
+                $p['updatedAt'] = !empty($p['updatedAt']) ? $p['updatedAt'] : round(microtime(true) * 1000);
+                $planets[$key] = $p;
+                $savedCount++;
+            }
         }
     } else if (isset($payload['type']) && $payload['type'] === 'report' && !empty($payload['data'])) {
         $r = $payload['data'];
@@ -113,3 +128,4 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
     ]);
     exit();
 }
+
